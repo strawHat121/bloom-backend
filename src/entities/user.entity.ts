@@ -1,8 +1,11 @@
 import { Column, Entity, Generated, OneToMany, OneToOne, PrimaryGeneratedColumn } from 'typeorm';
 import { PartnerAccessEntity } from '../entities/partner-access.entity';
 import { PartnerAdminEntity } from '../entities/partner-admin.entity';
+import { EMAIL_REMINDERS_FREQUENCY } from '../utils/constants';
 import { BaseBloomEntity } from './base.entity';
 import { CourseUserEntity } from './course-user.entity';
+import { EventLogEntity } from './event-log.entity';
+import { ResourceUserEntity } from './resource-user.entity';
 import { SubscriptionUserEntity } from './subscription-user.entity';
 import { TherapySessionEntity } from './therapy-session.entity';
 
@@ -23,8 +26,14 @@ export class UserEntity extends BaseBloomEntity {
   @Column({ nullable: true })
   signUpLanguage: string;
 
-  @Column()
-  contactPermission!: boolean;
+  @Column({ default: false })
+  contactPermission: boolean; // marketing consent - mapped to mailchimp marketing_permissions field
+
+  @Column({ default: true })
+  serviceEmailsPermission: boolean; // service emails consent - mapped to mailchimp status field
+
+  @Column({ default: EMAIL_REMINDERS_FREQUENCY.NEVER })
+  emailRemindersFrequency: EMAIL_REMINDERS_FREQUENCY;
 
   @Column({ type: Boolean, default: false })
   isSuperAdmin: boolean;
@@ -32,20 +41,36 @@ export class UserEntity extends BaseBloomEntity {
   @Column({ type: Boolean, default: true })
   isActive: boolean;
 
-  @OneToMany(() => PartnerAccessEntity, (partnerAccess) => partnerAccess.user)
+  @Column({ type: 'timestamptz', nullable: true })
+  lastActiveAt: Date; // set each time user record is fetched
+
+  @Column({ type: 'timestamptz', nullable: true })
+  deletedAt: Date; // set when the deleteUser method is called
+
+  @OneToMany(() => PartnerAccessEntity, (partnerAccess) => partnerAccess.user, { cascade: true })
   partnerAccess: PartnerAccessEntity[];
 
-  @OneToOne(() => PartnerAdminEntity, (partnerAdmin) => partnerAdmin.user)
+  @OneToOne(() => PartnerAdminEntity, (partnerAdmin) => partnerAdmin.user, { cascade: true })
   partnerAdmin: PartnerAdminEntity;
 
-  @OneToMany(() => CourseUserEntity, (courseUser) => courseUser.user)
+  @OneToMany(() => CourseUserEntity, (courseUser) => courseUser.user, { cascade: true })
   courseUser: CourseUserEntity[];
 
-  @OneToMany(() => SubscriptionUserEntity, (subscriptionUser) => subscriptionUser.user)
+  @OneToMany(() => ResourceUserEntity, (resourceUser) => resourceUser.user, {
+    cascade: true,
+  })
+  resourceUser: ResourceUserEntity[];
+
+  @OneToMany(() => SubscriptionUserEntity, (subscriptionUser) => subscriptionUser.user, {
+    cascade: true,
+  })
   subscriptionUser: SubscriptionUserEntity[];
 
-  @OneToMany(() => TherapySessionEntity, (therapySession) => therapySession.user)
+  @OneToMany(() => TherapySessionEntity, (therapySession) => therapySession.user, { cascade: true })
   therapySession: TherapySessionEntity[];
+
+  @OneToMany(() => EventLogEntity, (eventLog) => eventLog.user, { cascade: true })
+  eventLog: EventLogEntity[];
 
   @Column({ unique: true })
   @Generated('uuid')

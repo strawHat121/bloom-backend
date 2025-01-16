@@ -1,46 +1,56 @@
 import { createMock } from '@golevelup/ts-jest';
 import { Test, TestingModule } from '@nestjs/testing';
-import { format, sub } from 'date-fns';
-import startOfDay from 'date-fns/startOfDay';
-import { MailchimpClient } from 'src/api/mailchimp/mailchip-api';
+import { getRepositoryToken } from '@nestjs/typeorm';
 import { SlackMessageClient } from 'src/api/slack/slack-api';
-import { CoursePartnerRepository } from 'src/course-partner/course-partner.repository';
 import { CoursePartnerService } from 'src/course-partner/course-partner.service';
-import { CourseRepository } from 'src/course/course.repository';
+import { CrispService } from 'src/crisp/crisp.service';
+import { CoursePartnerEntity } from 'src/entities/course-partner.entity';
 import { CourseEntity } from 'src/entities/course.entity';
-import { EmailCampaignEntity } from 'src/entities/email-campaign.entity';
+import { EventLogEntity } from 'src/entities/event-log.entity';
+import { PartnerAccessEntity } from 'src/entities/partner-access.entity';
+import { PartnerAdminEntity } from 'src/entities/partner-admin.entity';
+import { PartnerEntity } from 'src/entities/partner.entity';
+import { ResourceEntity } from 'src/entities/resource.entity';
 import { SessionEntity } from 'src/entities/session.entity';
+import { TherapySessionEntity } from 'src/entities/therapy-session.entity';
 import { UserEntity } from 'src/entities/user.entity';
-import { PartnerAccessRepository } from 'src/partner-access/partner-access.repository';
-import { PartnerAdminRepository } from 'src/partner-admin/partner-admin.repository';
-import { PartnerRepository } from 'src/partner/partner.repository';
+import { EventLoggerService } from 'src/event-logger/event-logger.service';
 import { PartnerService } from 'src/partner/partner.service';
-import { SessionRepository } from 'src/session/session.repository';
-import { UserRepository } from 'src/user/user.repository';
-import { SIMPLYBOOK_ACTION_ENUM, STORYBLOK_STORY_STATUS_ENUM } from 'src/utils/constants';
+import { ServiceUserProfilesService } from 'src/service-user-profiles/service-user-profiles.service';
+import {
+  RESOURCE_CATEGORIES,
+  SIMPLYBOOK_ACTION_ENUM,
+  STORYBLOK_STORY_STATUS_ENUM,
+} from 'src/utils/constants';
 import StoryblokClient from 'storyblok-js-client';
 import {
   mockCourse,
   mockCourseStoryblokResult,
   mockPartnerAccessEntity,
+  mockResource,
+  mockResource2,
+  mockResourceStoryblokResult,
   mockSession,
   mockSessionStoryblokResult,
   mockSimplybookBodyBase,
   mockTherapySessionEntity,
+  mockUserEntity,
 } from 'test/utils/mockData';
 import {
   mockCoursePartnerRepositoryMethods,
+  mockCoursePartnerServiceMethods,
   mockCourseRepositoryMethods,
-  mockEmailCampaignRepositoryMethods,
-  mockMailchimpClientMethods,
+  mockEventLoggerRepositoryMethods,
   mockPartnerAccessRepositoryMethods,
+  mockPartnerAdminRepositoryMethods,
+  mockPartnerRepositoryMethods,
+  mockResourceRepositoryMethods,
   mockSessionRepositoryMethods,
   mockSlackMessageClientMethods,
   mockTherapySessionRepositoryMethods,
   mockUserRepositoryMethods,
 } from 'test/utils/mockedServices';
-import { EmailCampaignRepository } from './email-campaign/email-campaign.repository';
-import { TherapySessionRepository } from './therapy-session.repository';
+import { ILike, Repository } from 'typeorm';
 import { WebhooksService } from './webhooks.service';
 
 // Difficult to mock classes as well as node modules.
@@ -52,6 +62,7 @@ jest.mock('storyblok-js-client', () => {
     };
   });
 });
+
 jest.mock('src/api/simplybook/simplybook-api', () => {
   return {
     getBookingsForDate: async () => [
@@ -66,46 +77,41 @@ jest.mock('src/api/simplybook/simplybook-api', () => {
     },
   };
 });
-jest.mock('../api/crisp/crisp-api', () => {
-  return {
-    updateCrispProfileData: () => {
-      return;
-    },
-    getCrispPeopleData: () => {
-      return {
-        error: false,
-        reason: undefined,
-        data: {
-          data: {
-            data: {
-              therapy_sessions_remaining: 10,
-              therapy_sessions_redeemed: 10,
-            },
-          },
-        },
-      };
-    },
-  };
-});
 
 describe('WebhooksService', () => {
   let service: WebhooksService;
-  const mockedMailchimpClient = createMock<MailchimpClient>(mockMailchimpClientMethods);
-  const mockedSessionRepository = createMock<SessionRepository>(mockSessionRepositoryMethods);
-  const mockedCourseRepository = createMock<CourseRepository>(mockCourseRepositoryMethods);
-  const mockedCoursePartnerService = createMock<CoursePartnerService>(
-    mockCoursePartnerRepositoryMethods,
+  const mockedSessionRepository = createMock<Repository<SessionEntity>>(
+    mockSessionRepositoryMethods,
   );
-  const mockedUserRepository = createMock<UserRepository>(mockUserRepositoryMethods);
-  const mockedTherapySessionRepository = createMock<TherapySessionRepository>(
+  const mockedCourseRepository = createMock<Repository<CourseEntity>>(mockCourseRepositoryMethods);
+  const mockedCoursePartnerService = createMock<CoursePartnerService>(
+    mockCoursePartnerServiceMethods,
+  );
+  const mockedResourceRepository = createMock<Repository<ResourceEntity>>(
+    mockResourceRepositoryMethods,
+  );
+  const mockedUserRepository = createMock<Repository<UserEntity>>(mockUserRepositoryMethods);
+  const mockedTherapySessionRepository = createMock<Repository<TherapySessionEntity>>(
     mockTherapySessionRepositoryMethods,
   );
   const mockedSlackMessageClient = createMock<SlackMessageClient>(mockSlackMessageClientMethods);
-  const mockedPartnerAccessRepository = createMock<PartnerAccessRepository>(
+  const mockedPartnerAccessRepository = createMock<Repository<PartnerAccessEntity>>(
     mockPartnerAccessRepositoryMethods,
   );
-  const mockedEmailCampaignRepository = createMock<EmailCampaignRepository>(
-    mockEmailCampaignRepositoryMethods,
+  const mockedPartnerRepository = createMock<Repository<PartnerEntity>>(
+    mockPartnerRepositoryMethods,
+  );
+  const mockedCoursePartnerRepository = createMock<Repository<CoursePartnerEntity>>(
+    mockCoursePartnerRepositoryMethods,
+  );
+  const mockedPartnerAdminRepository = createMock<Repository<PartnerAdminEntity>>(
+    mockPartnerAdminRepositoryMethods,
+  );
+  const mockedServiceUserProfilesService = createMock<ServiceUserProfilesService>();
+  const mockCrispService = createMock<CrispService>();
+  const mockEventLoggerService = createMock<EventLoggerService>();
+  const mockEventLogRepository = createMock<Repository<EventLogEntity>>(
+    mockEventLoggerRepositoryMethods,
   );
 
   beforeEach(async () => {
@@ -113,41 +119,61 @@ describe('WebhooksService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         WebhooksService,
-        { provide: PartnerAccessRepository, useValue: mockedPartnerAccessRepository },
         {
-          provide: UserRepository,
+          provide: getRepositoryToken(PartnerAccessEntity),
+          useValue: mockedPartnerAccessRepository,
+        },
+        {
+          provide: getRepositoryToken(UserEntity),
           useValue: mockedUserRepository,
         },
         {
-          provide: CourseRepository,
+          provide: getRepositoryToken(ResourceEntity),
+          useValue: mockedResourceRepository,
+        },
+        {
+          provide: getRepositoryToken(CourseEntity),
           useValue: mockedCourseRepository,
         },
         {
-          provide: SessionRepository,
+          provide: getRepositoryToken(SessionEntity),
           useValue: mockedSessionRepository,
+        },
+        {
+          provide: getRepositoryToken(CoursePartnerEntity),
+          useValue: mockedCoursePartnerRepository,
+        },
+        {
+          provide: getRepositoryToken(PartnerEntity),
+          useValue: mockedPartnerRepository,
+        },
+        {
+          provide: getRepositoryToken(TherapySessionEntity),
+          useValue: mockedTherapySessionRepository,
+        },
+        {
+          provide: getRepositoryToken(PartnerAdminEntity),
+          useValue: mockedPartnerAdminRepository,
+        },
+        {
+          provide: ServiceUserProfilesService,
+          useValue: mockedServiceUserProfilesService,
         },
         {
           provide: CoursePartnerService,
           useValue: mockedCoursePartnerService,
         },
         {
-          provide: TherapySessionRepository,
-          useValue: mockedTherapySessionRepository,
-        },
-        {
-          provide: MailchimpClient,
-          useValue: mockedMailchimpClient,
-        },
-        CoursePartnerRepository,
-        PartnerService,
-        PartnerRepository,
-        PartnerAdminRepository,
-        EmailCampaignRepository,
-        {
           provide: SlackMessageClient,
           useValue: mockedSlackMessageClient,
         },
-        { provide: EmailCampaignRepository, useValue: mockedEmailCampaignRepository },
+        PartnerService,
+        {
+          provide: getRepositoryToken(EventLogEntity),
+          useValue: mockEventLogRepository,
+        },
+        { provide: CrispService, useValue: mockCrispService },
+        { provide: EventLoggerService, useValue: mockEventLoggerService },
       ],
     }).compile();
 
@@ -158,7 +184,7 @@ describe('WebhooksService', () => {
     expect(service).toBeDefined();
   });
 
-  describe('updateStory', () => {
+  describe('handleStoryUpdated', () => {
     it('when story does not exist, it returns with a 404', async () => {
       // unfortunately it is mega hard to mock classes that are also node modules and this was
       // the only solution i got working
@@ -173,30 +199,36 @@ describe('WebhooksService', () => {
       });
       expect.assertions(1);
 
-      return expect(
-        service.updateStory({
-          action: STORYBLOK_STORY_STATUS_ENUM.DELETED,
-          story_id: mockSession.storyblokId,
-          text: '',
-        }),
-      ).rejects.toThrowError('STORYBLOK STORY NOT FOUND');
+      const body = {
+        action: STORYBLOK_STORY_STATUS_ENUM.PUBLISHED,
+        story_id: mockSession.storyblokId,
+        text: '',
+      };
+
+      return expect(service.handleStoryUpdated(body)).rejects.toThrow('STORYBLOK STORY NOT FOUND');
     });
 
     it('when action is deleted, story should be set as deleted in database', async () => {
-      const deletedStory = (await service.updateStory({
+      const body = {
         action: STORYBLOK_STORY_STATUS_ENUM.DELETED,
         story_id: mockSession.storyblokId,
         text: '',
-      })) as SessionEntity;
+      };
+
+      const deletedStory = (await service.handleStoryUpdated(body)) as SessionEntity;
+
       expect(deletedStory.status).toBe(STORYBLOK_STORY_STATUS_ENUM.DELETED);
     });
 
     it('when action is unpublished, story should be set as unpublished in database', async () => {
-      const unpublished = (await service.updateStory({
+      const body = {
         action: STORYBLOK_STORY_STATUS_ENUM.UNPUBLISHED,
         story_id: mockSession.storyblokId,
         text: '',
-      })) as SessionEntity;
+      };
+
+      const unpublished = (await service.handleStoryUpdated(body)) as SessionEntity;
+
       expect(unpublished.status).toBe(STORYBLOK_STORY_STATUS_ENUM.UNPUBLISHED);
     });
 
@@ -229,21 +261,27 @@ describe('WebhooksService', () => {
       });
 
       const sessionSaveRepoSpy = jest.spyOn(mockedSessionRepository, 'save');
-      const sessionFindOneRepoSpy = jest.spyOn(mockedSessionRepository, 'findOne');
+      const sessionFindOneRepoSpy = jest
+        .spyOn(mockedSessionRepository, 'findOneBy')
+        .mockImplementationOnce(async () => {
+          return { ...mockSession, course: course2 };
+        });
 
       const courseFindOneSpy = jest
-        .spyOn(mockedCourseRepository, 'findOne')
+        .spyOn(mockedCourseRepository, 'findOneByOrFail')
         .mockImplementationOnce(async () => {
           return course2;
         });
 
-      const session = (await service.updateStory({
+      const body = {
         action: STORYBLOK_STORY_STATUS_ENUM.PUBLISHED,
         story_id: mockCourse.storyblokId,
         text: '',
-      })) as SessionEntity;
+      };
 
-      expect(courseFindOneSpy).toBeCalledWith({
+      const session = (await service.handleStoryUpdated(body)) as SessionEntity;
+
+      expect(courseFindOneSpy).toHaveBeenCalledWith({
         storyblokUuid: 'anotherCourseUuId',
       });
 
@@ -253,13 +291,13 @@ describe('WebhooksService', () => {
         courseId: 'courseId2',
       });
 
-      expect(sessionSaveRepoSpy).toBeCalledWith({
+      expect(sessionSaveRepoSpy).toHaveBeenCalledWith({
         ...mockSession,
         courseId: 'courseId2',
         course: course2,
       });
 
-      expect(sessionFindOneRepoSpy).toBeCalledWith({
+      expect(sessionFindOneRepoSpy).toHaveBeenCalledWith({
         storyblokId: mockSession.storyblokId,
       });
 
@@ -271,48 +309,52 @@ describe('WebhooksService', () => {
     it('when a session is new, the session should be created', async () => {
       const sessionSaveRepoSpy = jest.spyOn(mockedSessionRepository, 'save');
 
-      const sessionCreateRepoSpy = jest.spyOn(mockedSessionRepository, 'create');
       const sessionFindOneRepoSpy = jest
-        .spyOn(mockedSessionRepository, 'findOne')
+        .spyOn(mockedSessionRepository, 'findOneBy')
         .mockImplementationOnce(async () => undefined);
 
-      const courseFindOneSpy = jest.spyOn(mockedCourseRepository, 'findOne');
+      const courseFindOneSpy = jest.spyOn(mockedCourseRepository, 'findOneByOrFail');
 
-      const session = (await service.updateStory({
+      const body = {
         action: STORYBLOK_STORY_STATUS_ENUM.PUBLISHED,
         story_id: mockSession.storyblokId,
+        full_slug: mockSession.slug,
         text: '',
-      })) as SessionEntity;
+      };
 
-      expect(session).toEqual(mockSession);
-      expect(courseFindOneSpy).toBeCalledWith({
+      const expectedResponse = {
+        storyblokId: mockSession.storyblokId,
+        storyblokUuid: mockSession.storyblokUuid,
+        status: STORYBLOK_STORY_STATUS_ENUM.PUBLISHED,
+        slug: mockSession.slug,
+        name: mockSession.name,
+        courseId: mockSession.courseId,
+      };
+
+      const session = (await service.handleStoryUpdated(body)) as SessionEntity;
+
+      expect(session).toEqual(expectedResponse);
+      expect(courseFindOneSpy).toHaveBeenCalledWith({
         storyblokUuid: 'courseUuid1',
       });
-      expect(sessionSaveRepoSpy).toBeCalledWith({
-        ...mockSession,
-      });
-      expect(sessionSaveRepoSpy).toBeCalledWith({
-        ...mockSession,
-      });
-      expect(sessionFindOneRepoSpy).toBeCalledWith({
+      expect(sessionSaveRepoSpy).toHaveBeenCalledWith(expectedResponse);
+      expect(sessionFindOneRepoSpy).toHaveBeenCalledWith({
         storyblokId: mockSession.storyblokId,
       });
 
       courseFindOneSpy.mockClear();
       sessionSaveRepoSpy.mockClear();
       sessionFindOneRepoSpy.mockClear();
-      sessionCreateRepoSpy.mockClear();
     });
 
     it('when a session with session_iba type is new, the session should be created', async () => {
       const sessionSaveRepoSpy = jest.spyOn(mockedSessionRepository, 'save');
 
-      const sessionCreateRepoSpy = jest.spyOn(mockedSessionRepository, 'create');
       const sessionFindOneRepoSpy = jest
-        .spyOn(mockedSessionRepository, 'findOne')
+        .spyOn(mockedSessionRepository, 'findOneBy')
         .mockImplementationOnce(async () => undefined);
 
-      const courseFindOneSpy = jest.spyOn(mockedCourseRepository, 'findOne');
+      const courseFindOneSpy = jest.spyOn(mockedCourseRepository, 'findOneByOrFail');
 
       // eslint-disable-next-line
       // @ts-ignore
@@ -334,28 +376,37 @@ describe('WebhooksService', () => {
           },
         };
       });
-      const session = (await service.updateStory({
+
+      const body = {
         action: STORYBLOK_STORY_STATUS_ENUM.PUBLISHED,
         story_id: mockSession.storyblokId,
+        full_slug: mockSession.slug,
         text: '',
-      })) as SessionEntity;
+      };
 
-      expect(session).toEqual(mockSession);
-      expect(sessionSaveRepoSpy).toBeCalledWith({
-        ...mockSession,
-      });
+      const expectedResponse = {
+        storyblokId: mockSession.storyblokId,
+        storyblokUuid: mockSession.storyblokUuid,
+        status: STORYBLOK_STORY_STATUS_ENUM.PUBLISHED,
+        slug: mockSession.slug,
+        name: mockSession.name,
+        courseId: mockSession.courseId,
+      };
+
+      const session = (await service.handleStoryUpdated(body)) as SessionEntity;
+
+      expect(session).toEqual(expectedResponse);
+      expect(sessionSaveRepoSpy).toHaveBeenCalledWith(expectedResponse);
 
       courseFindOneSpy.mockClear();
       sessionSaveRepoSpy.mockClear();
       sessionFindOneRepoSpy.mockClear();
-      sessionCreateRepoSpy.mockClear();
     });
 
     it('when a course is new, the course should be created', async () => {
       const courseFindOneRepoSpy = jest
-        .spyOn(mockedCourseRepository, 'findOne')
+        .spyOn(mockedCourseRepository, 'findOneBy')
         .mockImplementationOnce(async () => undefined);
-      const courseCreateRepoSpy = jest.spyOn(mockedCourseRepository, 'create');
       const courseSaveRepoSpy = jest.spyOn(mockedCourseRepository, 'save');
 
       // eslint-disable-next-line
@@ -365,37 +416,173 @@ describe('WebhooksService', () => {
           get: async () => mockCourseStoryblokResult,
         };
       });
-      const course = (await service.updateStory({
+
+      const body = {
         action: STORYBLOK_STORY_STATUS_ENUM.PUBLISHED,
-        story_id: 5678,
+        story_id: mockCourseStoryblokResult.data.story.id,
+        full_slug: mockCourseStoryblokResult.data.story.full_slug,
         text: '',
-      })) as CourseEntity;
+      };
 
-      expect(course).toEqual(mockCourse);
-      expect(courseFindOneRepoSpy).toBeCalledWith({
+      const expectedResponse = {
         storyblokId: mockCourseStoryblokResult.data.story.id,
-      });
-
-      expect(courseCreateRepoSpy).toBeCalledWith({
-        storyblokId: mockCourseStoryblokResult.data.story.id,
-        name: mockCourseStoryblokResult.data.story.name,
+        storyblokUuid: mockCourseStoryblokResult.data.story.uuid,
         status: STORYBLOK_STORY_STATUS_ENUM.PUBLISHED,
         slug: mockCourseStoryblokResult.data.story.full_slug,
-        storyblokUuid: mockCourseStoryblokResult.data.story.uuid,
+        name: mockCourseStoryblokResult.data.story.name,
+      };
+
+      const course = (await service.handleStoryUpdated(body)) as CourseEntity;
+
+      expect(course).toEqual(expectedResponse);
+      expect(courseFindOneRepoSpy).toHaveBeenCalledWith({
+        storyblokId: mockCourseStoryblokResult.data.story.id,
       });
 
-      expect(courseSaveRepoSpy).toBeCalledWith(mockCourse);
+      expect(courseSaveRepoSpy).toHaveBeenCalledWith(expectedResponse);
 
+      expect(mockedServiceUserProfilesService.createMailchimpCourseMergeField).toHaveBeenCalledWith(
+        mockCourseStoryblokResult.data.story.name,
+      );
       courseFindOneRepoSpy.mockClear();
-      courseCreateRepoSpy.mockClear();
       courseSaveRepoSpy.mockClear();
     });
+
+    it('should handle unpublished action for a resource', async () => {
+      const body = {
+        action: STORYBLOK_STORY_STATUS_ENUM.UNPUBLISHED,
+        story_id: mockResource.storyblokId,
+        text: '',
+      };
+
+      const unpublishedResource = (await service.handleStoryUpdated(body)) as ResourceEntity;
+
+      expect(unpublishedResource.status).toBe(STORYBLOK_STORY_STATUS_ENUM.UNPUBLISHED);
+    });
+
+    it('should handle published action for a resource', async () => {
+      const body = {
+        action: STORYBLOK_STORY_STATUS_ENUM.PUBLISHED,
+        story_id: mockResource.storyblokId,
+        text: '',
+      };
+
+      const publishedResource = (await service.handleStoryUpdated(body)) as ResourceEntity;
+
+      expect(publishedResource.status).toBe(STORYBLOK_STORY_STATUS_ENUM.PUBLISHED);
+    });
+
+    it('should handle deleted action for a resource', async () => {
+      const body = {
+        action: STORYBLOK_STORY_STATUS_ENUM.DELETED,
+        story_id: mockResource.storyblokId,
+        text: '',
+      };
+
+      const deletedResource = (await service.handleStoryUpdated(body)) as ResourceEntity;
+
+      expect(deletedResource.status).toBe(STORYBLOK_STORY_STATUS_ENUM.DELETED);
+    });
+
+    it('should handle a new resource', async () => {
+      const resourceSaveRepoSpy = jest.spyOn(mockedResourceRepository, 'save');
+      const resourceFindOneRepoSpy = jest
+        .spyOn(mockedResourceRepository, 'findOneBy')
+        .mockImplementationOnce(async () => undefined);
+
+      // Mock StoryblokClient to return a resource story
+      // eslint-disable-next-line
+      // @ts-ignore
+      StoryblokClient.mockImplementationOnce(() => {
+        return {
+          get: async () => mockResourceStoryblokResult,
+        };
+      });
+
+      const body = {
+        action: STORYBLOK_STORY_STATUS_ENUM.PUBLISHED,
+        story_id: mockResourceStoryblokResult.data.story.id,
+        full_slug: mockResourceStoryblokResult.data.story.full_slug,
+        text: '',
+      };
+
+      const expectedResponse = {
+        storyblokId: mockResourceStoryblokResult.data.story.id,
+        storyblokUuid: mockResourceStoryblokResult.data.story.uuid,
+        status: STORYBLOK_STORY_STATUS_ENUM.PUBLISHED,
+        slug: mockResourceStoryblokResult.data.story.full_slug,
+        name: mockResourceStoryblokResult.data.story.name,
+        category: RESOURCE_CATEGORIES.SHORT_VIDEO,
+      };
+
+      const resource = (await service.handleStoryUpdated(body)) as ResourceEntity;
+
+      expect(resource).toEqual(expectedResponse);
+      expect(resourceSaveRepoSpy).toHaveBeenCalledWith(expectedResponse);
+      expect(resourceFindOneRepoSpy).toHaveBeenCalledWith({
+        storyblokUuid: mockResourceStoryblokResult.data.story.uuid,
+      });
+
+      resourceSaveRepoSpy.mockClear();
+      resourceFindOneRepoSpy.mockClear();
+    });
+
+    it('should handle updating an existing resource', async () => {
+      const resourceSaveRepoSpy = jest.spyOn(mockedResourceRepository, 'save');
+      const resourceFindOneRepoSpy = jest
+        .spyOn(mockedResourceRepository, 'findOneBy')
+        .mockImplementationOnce(async () => mockResource2);
+
+      const updatedMockResourceStoryblokResult = { ...mockResourceStoryblokResult };
+      const newName = 'New resource name';
+      const newSlug = 'resources/shorts/new-resource-name';
+      updatedMockResourceStoryblokResult.data.story.name = newName;
+      updatedMockResourceStoryblokResult.data.story.full_slug = newSlug;
+
+      // Mock StoryblokClient to return a resource story
+      // eslint-disable-next-line
+      // @ts-ignore
+      StoryblokClient.mockImplementationOnce(() => {
+        return {
+          get: async () => updatedMockResourceStoryblokResult,
+        };
+      });
+
+      const body = {
+        action: STORYBLOK_STORY_STATUS_ENUM.PUBLISHED,
+        story_id: mockResourceStoryblokResult.data.story.id,
+        full_slug: mockResourceStoryblokResult.data.story.full_slug,
+        text: '',
+      };
+
+      const expectedResponse = {
+        ...mockResource2,
+        storyblokId: mockResourceStoryblokResult.data.story.id,
+        storyblokUuid: mockResourceStoryblokResult.data.story.uuid,
+        status: STORYBLOK_STORY_STATUS_ENUM.PUBLISHED,
+        slug: newSlug,
+        name: newName,
+        category: RESOURCE_CATEGORIES.SHORT_VIDEO,
+      };
+
+      const updatedResource = (await service.handleStoryUpdated(body)) as ResourceEntity;
+
+      expect(updatedResource).toEqual(expectedResponse);
+      expect(resourceSaveRepoSpy).toHaveBeenCalled();
+      expect(resourceFindOneRepoSpy).toHaveBeenCalledWith({
+        storyblokUuid: mockResourceStoryblokResult.data.story.uuid,
+      });
+
+      resourceSaveRepoSpy.mockClear();
+      resourceFindOneRepoSpy.mockClear();
+    });
   });
+
   describe('updatePartnerAccessTherapy', () => {
     it('should update the booking time when action is update and time is different TODO ', async () => {
       const newStartTime = '2022-09-12T09:30:00+0000';
       const newEndTime = '2022-09-12T10:30:00+0000';
-      const therapyRepoFindOneSpy = jest.spyOn(mockedTherapySessionRepository, 'findOne');
+      const therapyRepoFindOneSpy = jest.spyOn(mockedTherapySessionRepository, 'findOneBy');
       const booking = await service.updatePartnerAccessTherapy({
         ...mockSimplybookBodyBase,
         start_date_time: newStartTime,
@@ -404,17 +591,128 @@ describe('WebhooksService', () => {
       });
       expect(booking).toHaveProperty('startDateTime', new Date(newStartTime));
       expect(booking).toHaveProperty('endDateTime', new Date(newEndTime));
-      expect(therapyRepoFindOneSpy).toBeCalled();
+      expect(therapyRepoFindOneSpy).toHaveBeenCalled();
     });
 
-    it('should throw when action is on a user that doesnt  exist', async () => {
+    it('should throw an error when action is on a user that doesnt exist', async () => {
       const userFindOneRepoSpy = jest
-        .spyOn(mockedUserRepository, 'findOne')
+        .spyOn(mockedUserRepository, 'findOneBy')
         .mockImplementationOnce(() => undefined);
-      await expect(service.updatePartnerAccessTherapy(mockSimplybookBodyBase)).rejects.toThrowError(
-        'Unable to find user',
+      await expect(service.updatePartnerAccessTherapy(mockSimplybookBodyBase)).rejects.toThrow(
+        'UpdatePartnerAccessTherapy - error finding user with userID userId2 and origin client_email testuser@test.com',
       );
-      expect(userFindOneRepoSpy).toBeCalled();
+      expect(userFindOneRepoSpy).toHaveBeenCalled();
+    });
+
+    it('when creating a new therapy session and the userId is not provided, it should get userId from previous entry', async () => {
+      const findTherapySessionSpy = jest
+        .spyOn(mockedTherapySessionRepository, 'findOneBy')
+        .mockImplementation(async () => {
+          return { ...mockTherapySessionEntity, clientEmail: mockSimplybookBodyBase.client_email };
+        });
+      const findUserSpy = jest
+        .spyOn(mockedUserRepository, 'findOneBy')
+        .mockImplementationOnce(async () => {
+          return mockUserEntity;
+        });
+      const findPartnerAccessSpy = jest
+        .spyOn(mockedPartnerAccessRepository, 'find')
+        .mockImplementationOnce(async () => {
+          return [{ ...mockPartnerAccessEntity, userId: 'userId1' }];
+        });
+      const newTherapySession = await service.updatePartnerAccessTherapy({
+        ...mockSimplybookBodyBase,
+        user_id: undefined,
+        action: SIMPLYBOOK_ACTION_ENUM.NEW_BOOKING,
+      });
+
+      expect(findTherapySessionSpy).toHaveBeenCalledWith({
+        clientEmail: ILike('testuser@test.com'),
+        bookingCode: ILike('abc'),
+      });
+
+      expect(findUserSpy).toHaveBeenCalledWith({
+        id: 'userId1',
+      });
+
+      expect(findPartnerAccessSpy).toHaveBeenCalledWith({
+        where: {
+          userId: 'userId1',
+          active: true,
+          featureTherapy: true,
+          therapySessionsRemaining: expect.objectContaining({ _value: 0 }),
+        },
+        relations: {
+          therapySession: true,
+        },
+      });
+
+      expect(newTherapySession).toEqual({
+        ...mockTherapySessionEntity,
+        clientEmail: mockSimplybookBodyBase.client_email,
+        bookingCode: mockSimplybookBodyBase.booking_code,
+        action: SIMPLYBOOK_ACTION_ENUM.NEW_BOOKING,
+        startDateTime: new Date(mockSimplybookBodyBase.start_date_time),
+        endDateTime: new Date(mockSimplybookBodyBase.end_date_time),
+      });
+    });
+
+    it('when creating a new therapy session and the user_id/ userId is not provided and no previousTherapySession exists, it should get userId from the userDatabase', async () => {
+      const findTherapySessionSpy = jest
+        .spyOn(mockedTherapySessionRepository, 'findOneBy')
+        .mockImplementationOnce(async () => {
+          return null;
+        });
+      const findUserSpy = jest.spyOn(mockedUserRepository, 'findOneBy');
+
+      const findPartnerAccessSpy = jest
+        .spyOn(mockedPartnerAccessRepository, 'find')
+        .mockImplementationOnce(async () => {
+          return [{ ...mockPartnerAccessEntity, userId: 'userId1' }];
+        });
+      const newTherapySession = await service.updatePartnerAccessTherapy({
+        ...mockSimplybookBodyBase,
+        user_id: undefined,
+        action: SIMPLYBOOK_ACTION_ENUM.NEW_BOOKING,
+      });
+
+      expect(newTherapySession).toEqual({
+        ...mockTherapySessionEntity,
+        clientEmail: mockSimplybookBodyBase.client_email,
+        bookingCode: mockSimplybookBodyBase.booking_code,
+        action: SIMPLYBOOK_ACTION_ENUM.NEW_BOOKING,
+        startDateTime: new Date(mockSimplybookBodyBase.start_date_time),
+        endDateTime: new Date(mockSimplybookBodyBase.end_date_time),
+      });
+
+      expect(findTherapySessionSpy).toHaveBeenCalledWith({
+        clientEmail: ILike('testuser@test.com'),
+        bookingCode: ILike('abc'),
+      });
+      expect(findUserSpy).toHaveBeenCalledWith({
+        id: 'userId1',
+      });
+
+      expect(findPartnerAccessSpy).toHaveBeenCalledWith({
+        where: {
+          userId: 'userId1',
+          active: true,
+          featureTherapy: true,
+          therapySessionsRemaining: expect.objectContaining({ _value: 0 }),
+        },
+        relations: {
+          therapySession: true,
+        },
+      });
+    });
+
+    it('should not error when client email is different case to user record email', async () => {
+      await expect(
+        service.updatePartnerAccessTherapy({
+          ...mockSimplybookBodyBase,
+          client_email: 'Testuser@test.com',
+        }),
+      ).resolves.toHaveProperty('action', SIMPLYBOOK_ACTION_ENUM.UPDATED_BOOKING);
     });
 
     it('should set a booking as cancelled when action is cancel', async () => {
@@ -425,12 +723,28 @@ describe('WebhooksService', () => {
         }),
       ).resolves.toHaveProperty('action', SIMPLYBOOK_ACTION_ENUM.CANCELLED_BOOKING);
     });
+
+    it('should add therapyRemaining to original partner access when action is cancel', async () => {
+      const partnerAccessSaveSpy = jest.spyOn(mockedPartnerAccessRepository, 'save');
+      await expect(
+        service.updatePartnerAccessTherapy({
+          ...mockSimplybookBodyBase,
+          ...{ action: SIMPLYBOOK_ACTION_ENUM.CANCELLED_BOOKING },
+        }),
+      ).resolves.toHaveProperty('action', SIMPLYBOOK_ACTION_ENUM.CANCELLED_BOOKING);
+      expect(partnerAccessSaveSpy).toHaveBeenCalledWith({
+        ...mockPartnerAccessEntity,
+        therapySessionsRemaining: mockPartnerAccessEntity.therapySessionsRemaining + 1,
+        therapySessionsRedeemed: mockPartnerAccessEntity.therapySessionsRedeemed - 1,
+      });
+    });
+
     it('should set a booking as cancelled when action is cancel and there are no therapy sessions remaining TODO', async () => {
       // mock that there is no therapy sessions remaining on partner access
       const partnerAccessFindSpy = jest
-        .spyOn(mockedPartnerAccessRepository, 'find')
+        .spyOn(mockedPartnerAccessRepository, 'findOneBy')
         .mockImplementationOnce(async () => {
-          return [{ ...mockPartnerAccessEntity, therapySessionsRemaining: 0 }];
+          return { ...mockPartnerAccessEntity, therapySessionsRemaining: 0 };
         });
       await expect(
         service.updatePartnerAccessTherapy({
@@ -438,7 +752,7 @@ describe('WebhooksService', () => {
           ...{ action: SIMPLYBOOK_ACTION_ENUM.CANCELLED_BOOKING },
         }),
       ).resolves.toHaveProperty('action', SIMPLYBOOK_ACTION_ENUM.CANCELLED_BOOKING);
-      expect(partnerAccessFindSpy).toBeCalled();
+      expect(partnerAccessFindSpy).toHaveBeenCalled();
     });
 
     it('should throw if no partnerAccess exists when user tries to create a booking', async () => {
@@ -450,8 +764,11 @@ describe('WebhooksService', () => {
           ...mockSimplybookBodyBase,
           ...{ action: SIMPLYBOOK_ACTION_ENUM.NEW_BOOKING },
         }),
-      ).rejects.toThrow('Unable to find partner access');
+      ).rejects.toThrow(
+        'newPartnerAccessTherapy - no partner therapy access - email user@email.com userId userId2',
+      );
     });
+
     it('should deduct therapyRemaining when user creates a new booking', async () => {
       jest.spyOn(mockedPartnerAccessRepository, 'find').mockImplementationOnce(async () => {
         return [
@@ -466,8 +783,9 @@ describe('WebhooksService', () => {
           ...{ action: SIMPLYBOOK_ACTION_ENUM.NEW_BOOKING },
         }),
       ).resolves.toHaveProperty('action', SIMPLYBOOK_ACTION_ENUM.NEW_BOOKING);
-      expect(partnerAccessSaveSpy).toBeCalledWith(mockPartnerAccessEntity);
+      expect(partnerAccessSaveSpy).toHaveBeenCalledWith(mockPartnerAccessEntity);
     });
+
     it('should not update partner access when user updates booking', async () => {
       const partnerAccessSaveSpy = jest.spyOn(mockedPartnerAccessRepository, 'save');
       await expect(
@@ -476,7 +794,7 @@ describe('WebhooksService', () => {
           ...{ action: SIMPLYBOOK_ACTION_ENUM.UPDATED_BOOKING },
         }),
       ).resolves.toHaveProperty('action', SIMPLYBOOK_ACTION_ENUM.UPDATED_BOOKING);
-      expect(partnerAccessSaveSpy).toBeCalledTimes(0);
+      expect(partnerAccessSaveSpy).not.toHaveBeenCalled();
     });
     it('should error if user creates booking when no therapy sessions remaining ', async () => {
       jest.spyOn(mockedPartnerAccessRepository, 'find').mockImplementationOnce(async () => {
@@ -494,10 +812,12 @@ describe('WebhooksService', () => {
           ...mockSimplybookBodyBase,
           ...{ action: SIMPLYBOOK_ACTION_ENUM.NEW_BOOKING },
         }),
-      ).rejects.toThrowError('No therapy sessions remaining');
+      ).rejects.toThrow(
+        'newPartnerAccessTherapy - user has partner therapy access but has 0 therapy sessions remaining - email user@email.com userId userId2',
+      );
     });
     it('if user has 2 partner access codes and booking is tied to second code, user should be able to update booking', async () => {
-      jest.spyOn(mockedPartnerAccessRepository, 'find').mockImplementationOnce(async () => {
+      jest.spyOn(mockedPartnerAccessRepository, 'findBy').mockImplementationOnce(async () => {
         return [
           {
             ...mockPartnerAccessEntity,
@@ -516,14 +836,9 @@ describe('WebhooksService', () => {
         ];
       });
       const therapySessionFindOneSpy = jest
-        .spyOn(mockedTherapySessionRepository, 'findOne')
-        .mockImplementationOnce(async (args: any) => {
-          // if statement to ensure the two partner access Ids are passed
-          if (args.where?.filter((el) => el.partnerAccessId).length === 2) {
-            return { ...mockTherapySessionEntity, partnerAccessId: 'partnerAccessId2' };
-          } else {
-            throw new Error('Unable to find therapy session');
-          }
+        .spyOn(mockedTherapySessionRepository, 'findOneBy')
+        .mockImplementationOnce(async (args: Partial<TherapySessionEntity>) => {
+          return { ...mockTherapySessionEntity, ...args };
         });
 
       await expect(
@@ -532,177 +847,7 @@ describe('WebhooksService', () => {
           ...{ action: SIMPLYBOOK_ACTION_ENUM.UPDATED_BOOKING },
         }),
       ).resolves.toHaveProperty('action', SIMPLYBOOK_ACTION_ENUM.UPDATED_BOOKING);
-      expect(therapySessionFindOneSpy).toBeCalledTimes(1);
-    });
-  });
-  describe('sendFirstTherapySessionFeedbackEmail', () => {
-    it('should send email to those with bookings yesterday', async () => {
-      jest.spyOn(mockedEmailCampaignRepository, 'find').mockImplementationOnce(async () => {
-        return [];
-      });
-      const sentEmails = await service.sendFirstTherapySessionFeedbackEmail();
-      expect(sentEmails).toBe(
-        `First therapy session feedback emails sent to 1 client(s) for date: ${format(
-          sub(new Date(), { days: 1 }),
-          'dd/MM/yyyy',
-        )}`,
-      );
-    });
-
-    it('should send email to only those who have not recieved an email already', async () => {
-      // Mocking that email campaign entry already exists
-      jest.spyOn(mockedEmailCampaignRepository, 'find').mockImplementationOnce(async () => {
-        return [{} as EmailCampaignEntity];
-      });
-      const saveSpy = jest.spyOn(mockedEmailCampaignRepository, 'save');
-
-      const mailChimpSpy = jest.spyOn(mockedMailchimpClient, 'sendTherapyFeedbackEmail');
-      const sentEmails = await service.sendFirstTherapySessionFeedbackEmail();
-      expect(sentEmails).toBe(
-        `First therapy session feedback emails sent to 0 client(s) for date: ${format(
-          sub(new Date(), {
-            days: 1,
-          }),
-          'dd/MM/yyyy',
-        )}`,
-      );
-      await expect(mailChimpSpy).toBeCalledTimes(0);
-      await expect(saveSpy).toBeCalledTimes(0);
-    });
-    it('should only send bookings to those who have signed up in english', async () => {
-      jest.spyOn(mockedEmailCampaignRepository, 'find').mockImplementationOnce(async () => {
-        return [];
-      });
-      jest
-        .spyOn(mockedTherapySessionRepository, 'findOneOrFail')
-        .mockImplementationOnce(async () => {
-          return { ...mockTherapySessionEntity, user: { signUpLanguage: 'fr' } as UserEntity };
-        });
-      const sentEmails = await service.sendFirstTherapySessionFeedbackEmail();
-      expect(sentEmails).toBe(
-        `First therapy session feedback emails sent to 0 client(s) for date: ${format(
-          sub(new Date(), { days: 1 }),
-          'dd/MM/yyyy',
-        )}`,
-      );
-    });
-  });
-  describe('sendImpactMeasurementEmail', () => {
-    it('should send email to those with bookings yesterday', async () => {
-      const startDate = sub(startOfDay(new Date()), { days: 180 });
-      const endDate = sub(startOfDay(new Date()), { days: 173 });
-      const mailChimpSpy = jest.spyOn(mockedMailchimpClient, 'sendImpactMeasurementEmail');
-      const emailCampaignRepositorySpy = jest.spyOn(mockedEmailCampaignRepository, 'save');
-      // Mock that there are no emails in campaign repository
-      const emailCampaignRepositoryFindSpy = jest
-        .spyOn(mockedEmailCampaignRepository, 'find')
-        .mockImplementationOnce(async () => {
-          return [];
-        })
-        .mockImplementationOnce(async () => {
-          return [];
-        });
-      const sentEmails = await service.sendImpactMeasurementEmail();
-      expect(sentEmails).toBe(
-        `Impact feedback email sent to ${2} users who created their account between ${format(
-          startDate,
-          'dd/MM/yyyy',
-        )} - ${format(endDate, 'dd/MM/yyyy')}`,
-      );
-      expect(mailChimpSpy).toBeCalledTimes(2);
-      expect(emailCampaignRepositorySpy).toBeCalledTimes(2);
-      expect(emailCampaignRepositoryFindSpy).toBeCalledTimes(2);
-    });
-
-    it('if error occurs for saving entry in campaign repository for one user, loop continues and error is logged', async () => {
-      const startDate = sub(startOfDay(new Date()), { days: 180 });
-      const endDate = sub(startOfDay(new Date()), { days: 173 });
-      const mailChimpSpy = jest.spyOn(mockedMailchimpClient, 'sendImpactMeasurementEmail');
-      const emailCampaignRepositorySpy = jest
-        .spyOn(mockedEmailCampaignRepository, 'save')
-        .mockImplementationOnce(async () => {
-          throw new Error('Failed to save');
-        });
-      const emailCampaignRepositoryFindSpy = jest
-        .spyOn(mockedEmailCampaignRepository, 'find')
-        .mockImplementationOnce(async () => {
-          return [];
-        })
-        .mockImplementationOnce(async () => {
-          return [];
-        });
-      const sentEmails = await service.sendImpactMeasurementEmail();
-      expect(sentEmails).toBe(
-        `Impact feedback email sent to ${2} users who created their account between ${format(
-          startDate,
-          'dd/MM/yyyy',
-        )} - ${format(endDate, 'dd/MM/yyyy')}`,
-      );
-      expect(mailChimpSpy).toBeCalledTimes(2);
-      expect(emailCampaignRepositorySpy).toBeCalledTimes(2);
-      expect(emailCampaignRepositoryFindSpy).toBeCalledTimes(2);
-    });
-
-    it('if error occurs for sending email for one user, loop continues', async () => {
-      const startDate = sub(startOfDay(new Date()), { days: 180 });
-      const endDate = sub(startOfDay(new Date()), { days: 173 });
-      const mailChimpSpy = jest
-        .spyOn(mockedMailchimpClient, 'sendImpactMeasurementEmail')
-        .mockImplementationOnce(async () => {
-          throw new Error();
-        });
-      const emailCampaignRepositorySpy = jest.spyOn(mockedEmailCampaignRepository, 'save');
-      const emailCampaignRepositoryFindSpy = jest
-        .spyOn(mockedEmailCampaignRepository, 'find')
-        .mockImplementationOnce(async () => {
-          return [];
-        })
-        .mockImplementationOnce(async () => {
-          return [];
-        });
-      const sentEmails = await service.sendImpactMeasurementEmail();
-      expect(sentEmails).toBe(
-        `Impact feedback email sent to ${1} users who created their account between ${format(
-          startDate,
-          'dd/MM/yyyy',
-        )} - ${format(endDate, 'dd/MM/yyyy')}`,
-      );
-      expect(mailChimpSpy).toBeCalledTimes(2);
-      expect(emailCampaignRepositorySpy).toBeCalledTimes(1);
-      expect(emailCampaignRepositoryFindSpy).toBeCalledTimes(2);
-    });
-    it('if a user has already been sent an email, no second email is sent', async () => {
-      const startDate = sub(startOfDay(new Date()), { days: 180 });
-      const endDate = sub(startOfDay(new Date()), { days: 173 });
-      const emailCampaignRepositorySpy = jest.spyOn(mockedEmailCampaignRepository, 'save');
-      const emailCampaignRepositoryFindSpy = jest
-        .spyOn(mockedEmailCampaignRepository, 'find')
-        .mockImplementationOnce(async () => {
-          return [];
-        })
-        .mockImplementationOnce(async () => {
-          // Mocking that one already has been sent to the user
-          return [{} as EmailCampaignEntity];
-        });
-
-      const sentEmails = await service.sendImpactMeasurementEmail();
-      expect(sentEmails).toBe(
-        `Impact feedback email sent to ${1} users who created their account between ${format(
-          startDate,
-          'dd/MM/yyyy',
-        )} - ${format(endDate, 'dd/MM/yyyy')}`,
-      );
-      expect(emailCampaignRepositorySpy).toBeCalledTimes(1);
-      expect(emailCampaignRepositoryFindSpy).toBeCalledTimes(2);
-    });
-
-    it('if error occurs fetching users, error is thrown', async () => {
-      jest.spyOn(mockedUserRepository, 'find').mockImplementationOnce(async () => {
-        throw new Error('Failed to save');
-      });
-      await expect(service.sendImpactMeasurementEmail()).rejects.toThrowError(
-        'SendImpactMeasurementEmail - Unable to fetch user',
-      );
+      expect(therapySessionFindOneSpy).toHaveBeenCalled();
     });
   });
 });

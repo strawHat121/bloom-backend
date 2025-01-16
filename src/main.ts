@@ -1,6 +1,7 @@
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import 'reflect-metadata';
 import { AppModule } from './app.module';
 import { Logger } from './logger/logger';
 import { LoggingInterceptor } from './logger/logging.interceptor';
@@ -8,9 +9,12 @@ import { ExceptionsFilter } from './utils/exceptions.filter';
 
 async function bootstrap() {
   const PORT = process.env.PORT || 35001;
-  const app = await NestFactory.create(AppModule, { cors: true });
+  const app = await NestFactory.create(AppModule, { cors: true, rawBody: true });
 
   app.setGlobalPrefix('api');
+
+  // Starts listening for shutdown hooks
+  app.enableShutdownHooks();
 
   const options = new DocumentBuilder()
     .setTitle('Bloom backend API')
@@ -28,7 +32,7 @@ async function bootstrap() {
   const logger = app.get(Logger);
   app.useLogger(logger);
   app.useGlobalInterceptors(new LoggingInterceptor());
-  app.useGlobalPipes(new ValidationPipe({ transform: true }));
+  app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true }));
   app.useGlobalFilters(new ExceptionsFilter());
   await app.listen(PORT);
   console.log(`Listening on localhost:${PORT}, CTRL+C to stop`);

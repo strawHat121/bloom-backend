@@ -1,6 +1,6 @@
 import { Logger } from '@nestjs/common';
 import axios from 'axios';
-import format from 'date-fns/format';
+import { format } from 'date-fns';
 
 import { simplybookCompanyName, simplybookCredentials } from 'src/utils/constants';
 
@@ -80,7 +80,48 @@ export const getBookingsForDate: (date: Date) => Promise<BookingInfo[]> = async 
   }
 };
 
-const handleError = (error: any, message: string) => {
+// Not currently used but might be used in future implementations so am keeping
+export const deleteClient: (clientId: string) => Promise<string> = async (clientId) => {
+  const token = await getAuthToken();
+
+  try {
+    const bookingsResponse = await axios.get(`${SIMPLYBOOK_API_BASE_URL}/client/${clientId}`, {
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Company-Login': simplybookCompanyName,
+        'X-Token': `${token}`,
+      },
+    });
+    return bookingsResponse.data.data;
+  } catch (error) {
+    handleError(`Failed to delete client ${clientId} from Simplybook.`, error);
+  }
+};
+
+export const updateSimplybookClient = async (clientId: string, clientData: { email?: string }) => {
+  const token = await getAuthToken();
+  try {
+    const bookingsResponse = await axios.patch(`${SIMPLYBOOK_API_BASE_URL}/client/${clientId}`, {
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Company-Login': simplybookCompanyName,
+        'X-Token': `${token}`,
+      },
+      body: clientData,
+    });
+    LOGGER.log({ event: 'UPDATE_SIMPLYBOOK_CLIENT', fields: [Object.keys(clientData)] });
+    return bookingsResponse.data.data;
+  } catch (error) {
+    LOGGER.error({
+      error: 'SIMPLYBOOK_CLIENT_UPDATE_ERROR',
+      status: error.status,
+      errorMessage: error.message,
+    });
+    handleError(`Failed to edit client ${clientId} from Simplybook.`, error);
+  }
+};
+
+const handleError = (error, message: string) => {
   LOGGER.error(message, error);
   throw new Error(`${message}: ${error})`);
 };

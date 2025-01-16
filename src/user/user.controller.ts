@@ -4,8 +4,8 @@ import {
   Delete,
   Get,
   Param,
+  Patch,
   Post,
-  Put,
   Query,
   Req,
   UseGuards,
@@ -14,8 +14,11 @@ import { ApiBearerAuth, ApiBody, ApiOperation, ApiParam, ApiTags } from '@nestjs
 import { Request } from 'express';
 import { UserEntity } from 'src/entities/user.entity';
 import { SuperAdminAuthGuard } from 'src/partner-admin/super-admin-auth.guard';
+import { ServiceUserProfilesService } from 'src/service-user-profiles/service-user-profiles.service';
+import { formatUserObject } from 'src/utils/serialize';
 import { FirebaseAuthGuard } from '../firebase/firebase-auth.guard';
 import { ControllerDecorator } from '../utils/controller.decorator';
+import { AdminUpdateUserDto } from './dtos/admin-update-user.dto';
 import { CreateUserDto } from './dtos/create-user.dto';
 import { GetUserDto } from './dtos/get-user.dto';
 import { UpdateUserDto } from './dtos/update-user.dto';
@@ -25,7 +28,10 @@ import { UserService } from './user.service';
 @ControllerDecorator()
 @Controller('/v1/user')
 export class UserController {
-  constructor(private readonly userService: UserService) {}
+  constructor(
+    private readonly userService: UserService,
+    private readonly serviceUserProfilesService: ServiceUserProfilesService,
+  ) {}
 
   @Post()
   @ApiOperation({
@@ -41,32 +47,34 @@ export class UserController {
     description:
       'Returns user profile data with their nested partner access, partner admin, course user and session user data.',
   })
-  @Post('/me')
+  @Get('/me')
   @UseGuards(FirebaseAuthGuard)
   async getUserByFirebaseId(@Req() req: Request): Promise<GetUserDto> {
-    return req['user'];
-  }
-
-  // TODO - work out if this is used anywhere and delete if necessary
-  @ApiBearerAuth()
-  @Post('/delete')
-  @UseGuards(FirebaseAuthGuard)
-  async deleteUserRecord(@Req() req: Request): Promise<string> {
-    return await this.userService.deleteUser(req['user'] as GetUserDto);
+    const user = req['userEntity'];
+    this.userService.updateUser({ lastActiveAt: new Date() }, user.id);
+    return (await this.userService.getUserProfile(user.id)).userDto;
   }
 
   @ApiBearerAuth()
   @Delete()
   @UseGuards(FirebaseAuthGuard)
-  async deleteUser(@Req() req: Request): Promise<string> {
-    return await this.userService.deleteUser(req['user'] as GetUserDto);
+  async deleteUser(@Req() req: Request): Promise<UserEntity> {
+    return await this.userService.deleteUser(req['userEntity']);
   }
+
   // This route must go before the Delete user route below as we want nestjs to check against this one first
   @ApiBearerAuth('access-token')
   @Delete('/cypress')
   @UseGuards(SuperAdminAuthGuard)
   async deleteCypressUsers(): Promise<UserEntity[]> {
     return await this.userService.deleteCypressTestUsers();
+  }
+
+  @ApiBearerAuth('access-token')
+  @Delete('/cypress-clean')
+  @UseGuards(SuperAdminAuthGuard)
+  async cleanCypressUsers(): Promise<UserEntity[]> {
+    return await this.userService.deleteCypressTestUsers(true);
   }
 
   @ApiBearerAuth()
@@ -78,10 +86,17 @@ export class UserController {
   }
 
   @ApiBearerAuth()
-  @Put()
+  @Patch()
   @UseGuards(FirebaseAuthGuard)
-  async updateUser(@Body() updateUserDto: UpdateUserDto, @Req() req: Request) {
-    return await this.userService.updateUser(updateUserDto, req['user'] as GetUserDto);
+  async updateUser(@Body() updateUserDto: UpdateUserDto, @Req() req: Request): Promise<UserEntity> {
+    return await this.userService.updateUser(updateUserDto, req['userEntity'].id);
+  }
+
+  @ApiBearerAuth()
+  @Patch('/admin/:id')
+  @UseGuards(SuperAdminAuthGuard)
+  async adminUpdateUser(@Param() { id }, @Body() adminUpdateUserDto: AdminUpdateUserDto) {
+    return await this.userService.adminUpdateUser(adminUpdateUserDto, id);
   }
 
   @ApiBearerAuth()
@@ -91,6 +106,23 @@ export class UserController {
     const { include, fields, limit, ...userQuery } = query.searchCriteria
       ? JSON.parse(query.searchCriteria)
       : { include: [], fields: [], limit: undefined };
-    return await this.userService.getUsers(userQuery, include, fields, limit);
+    const users = await this.userService.getUsers(userQuery, include || [], fields, limit);
+    return users.map((u) => formatUserObject(u));
+  }
+
+  @ApiBearerAuth()
+  @Get('/bulk-upload-mailchimp-profiles')
+  @UseGuards(SuperAdminAuthGuard)
+  async bulkUploadMailchimpProfiles() {
+    await this.serviceUserProfilesService.bulkUploadMailchimpProfiles();
+    return 'ok';
+  }
+
+  @ApiBearerAuth()
+  @Get('/bulk-update-mailchimp-profiles')
+  @UseGuards(SuperAdminAuthGuard)
+  async bulkUpdateMailchimpProfiles() {
+    await this.serviceUserProfilesService.bulkUpdateMailchimpProfiles();
+    return 'ok';
   }
 }

@@ -1,46 +1,44 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import _ from 'lodash';
-import { updateCrispProfileCourse, updateCrispProfileSession } from '../api/crisp/crisp-api';
+import { UserEntity } from 'src/entities/user.entity';
+import { ServiceUserProfilesService } from 'src/service-user-profiles/service-user-profiles.service';
+import { Repository } from 'typeorm';
 import { CourseUserService } from '../course-user/course-user.service';
-import { CourseService } from '../course/course.service';
 import { CourseUserEntity } from '../entities/course-user.entity';
 import { CourseEntity } from '../entities/course.entity';
 import { SessionUserEntity } from '../entities/session-user.entity';
 import { Logger } from '../logger/logger';
 import { SessionService } from '../session/session.service';
-import { GetUserDto } from '../user/dtos/get-user.dto';
-import { UserRepository } from '../user/user.repository';
-import { UserService } from '../user/user.service';
-import { PROGRESS_STATUS, STORYBLOK_STORY_STATUS_ENUM } from '../utils/constants';
+import { STORYBLOK_STORY_STATUS_ENUM } from '../utils/constants';
 import { formatCourseUserObject, formatCourseUserObjects } from '../utils/serialize';
 import { SessionUserDto } from './dtos/session-user.dto';
 import { UpdateSessionUserDto } from './dtos/update-session-user.dto';
-import { SessionUserRepository } from './session-user.repository';
 
 @Injectable()
 export class SessionUserService {
   private readonly logger = new Logger('SessionUserService');
 
   constructor(
-    @InjectRepository(SessionUserRepository) private sessionUserRepository: SessionUserRepository,
-    @InjectRepository(UserRepository) private userRepository: UserRepository,
+    @InjectRepository(SessionUserEntity)
+    private sessionUserRepository: Repository<SessionUserEntity>,
+    @InjectRepository(CourseEntity)
+    private courseRepository: Repository<CourseEntity>,
+    @InjectRepository(UserEntity) private userRepository: Repository<UserEntity>,
     private readonly courseUserService: CourseUserService,
-    private readonly userService: UserService,
     private readonly sessionService: SessionService,
-    private readonly courseService: CourseService,
+    private serviceUserProfilesService: ServiceUserProfilesService,
   ) {}
 
   private async checkCourseIsComplete(
     courseUser: CourseUserEntity,
     course: CourseEntity,
-    userEmail: string,
   ): Promise<CourseUserEntity> {
-    const userSessionIds = courseUser.sessionUser.map((sessionUser) => {
+    const userSessionIds = courseUser.sessionUser?.map((sessionUser) => {
       if (sessionUser.completed) return sessionUser.sessionId;
     });
 
-    const courseSessionIds = course.session.map((session) => {
+    const courseSessionIds = course.session?.map((session) => {
       if (session.status === STORYBLOK_STORY_STATUS_ENUM.PUBLISHED) return session.id;
     });
 
@@ -54,9 +52,6 @@ export class SessionUserService {
         },
         courseIsComplete,
       );
-
-      const crispStatus = courseIsComplete ? PROGRESS_STATUS.COMPLETED : PROGRESS_STATUS.STARTED;
-      updateCrispProfileCourse(course.name, userEmail, crispStatus);
 
       courseUser.completed = courseIsComplete;
     }
@@ -90,7 +85,7 @@ export class SessionUserService {
     });
   }
 
-  public async createSessionUser({ user }: GetUserDto, { storyblokId }: UpdateSessionUserDto) {
+  public async createSessionUser(user: UserEntity, { storyblokId }: UpdateSessionUserDto) {
     const session = await this.sessionService.getSessionByStoryblokId(storyblokId);
 
     if (!session) {
@@ -109,8 +104,6 @@ export class SessionUserService {
         userId: user.id,
         courseId,
       });
-
-      updateCrispProfileCourse(session.course.name, user.email, PROGRESS_STATUS.STARTED);
     }
 
     let sessionUser = await this.getSessionUser({
@@ -124,13 +117,6 @@ export class SessionUserService {
         courseUserId: courseUser.id,
         completed: false,
       });
-
-      updateCrispProfileSession(
-        session.course.name,
-        session.name,
-        PROGRESS_STATUS.STARTED,
-        user.email,
-      );
     }
 
     // Retrieve data for response
@@ -139,11 +125,13 @@ export class SessionUserService {
       courseId,
     });
 
+    this.serviceUserProfilesService.updateServiceUserProfilesCourse(updatedCourseUser, user.email);
+
     return formatCourseUserObject(updatedCourseUser);
   }
 
   public async setSessionUserCompleted(
-    { user }: GetUserDto,
+    user : UserEntity,
     { storyblokId }: UpdateSessionUserDto,
     completed: boolean,
   ) {
@@ -170,8 +158,6 @@ export class SessionUserService {
       });
       courseUser.sessionUser = []; // initialise session user array
 
-      updateCrispProfileCourse(session.course.name, user.email, PROGRESS_STATUS.STARTED);
-
       this.logger.error(
         `Course user not found for user (user-id: ${user.id}) for course (course-id: ${courseId}).
          Creating new course user so that session (session-id: ${session.id}) can be marked compelete`,
@@ -188,7 +174,7 @@ export class SessionUserService {
       sessionUser.completedAt = completed ? new Date() : null;
       await this.sessionUserRepository.save(sessionUser);
 
-      courseUser.sessionUser.map((su) => {
+      courseUser.sessionUser?.map((su) => {
         if (su.sessionId === id) {
           su.completed = completed;
         }
@@ -205,14 +191,15 @@ export class SessionUserService {
     }
 
     // Attach data to object to be serialized for response
-    const course = await this.courseService.getCourseWithSessions(courseId);
-    courseUser = await this.checkCourseIsComplete(courseUser, course, user.email);
+    const course = await this.courseRepository.findOne({
+      where: { id: courseId },
+      relations: { session: true },
+    });
+    courseUser = await this.checkCourseIsComplete(courseUser, course);
     courseUser.course = course;
     const formattedResponse = formatCourseUserObjects([courseUser])[0];
 
-    const crispStatus = completed ? PROGRESS_STATUS.COMPLETED : PROGRESS_STATUS.STARTED;
-
-    updateCrispProfileSession(session.course.name, session.name, crispStatus, user.email);
+    this.serviceUserProfilesService.updateServiceUserProfilesCourse(courseUser, user.email);
 
     return formattedResponse;
   }

@@ -4,37 +4,44 @@ import { DecodedIdToken } from 'firebase-admin/lib/auth/token-verifier';
 import { AuthService } from 'src/auth/auth.service';
 import { PartnerAdminEntity } from 'src/entities/partner-admin.entity';
 import { UserEntity } from 'src/entities/user.entity';
-import { UserRepository } from 'src/user/user.repository';
+import { EMAIL_REMINDERS_FREQUENCY } from 'src/utils/constants';
+import { Repository } from 'typeorm';
 import { createQueryBuilderMock } from '../../test/utils/mockUtils';
 import { PartnerAdminAuthGuard } from './partner-admin-auth.guard';
 
 const userEntity: UserEntity = {
   updatedAt: null,
+  deletedAt: null,
   createdAt: new Date(),
   firebaseUid: '123',
   id: 'userid',
   email: 'usermail',
   name: 'name',
   contactPermission: false,
+  serviceEmailsPermission: true,
+  emailRemindersFrequency: EMAIL_REMINDERS_FREQUENCY.TWO_MONTHS,
   isSuperAdmin: false,
   crispTokenId: '123',
   partnerAccess: [],
-  partnerAdmin: { id: 'partnerAdminId', partner: {} } as PartnerAdminEntity,
+  partnerAdmin: { id: 'partnerAdminId', active: true, partner: {} } as PartnerAdminEntity,
   isActive: true,
+  lastActiveAt: new Date(),
   courseUser: [],
   signUpLanguage: 'en',
   subscriptionUser: [],
   therapySession: [],
+  resourceUser: [],
+  eventLog: [],
 };
 describe('PartnerAdminAuthGuard', () => {
   let guard: PartnerAdminAuthGuard;
   let mockAuthService: DeepMocked<AuthService>;
-  let mockUserRepository: DeepMocked<UserRepository>;
+  let mockUserRepository: DeepMocked<Repository<UserEntity>>;
   let context: ExecutionContext;
 
   beforeEach(() => {
     mockAuthService = createMock<AuthService>();
-    mockUserRepository = createMock<UserRepository>();
+    mockUserRepository = createMock<Repository<UserEntity>>();
     guard = new PartnerAdminAuthGuard(mockAuthService, mockUserRepository);
     context = createMock<ExecutionContext>({
       switchToHttp: jest.fn().mockReturnValue({
@@ -72,6 +79,43 @@ describe('PartnerAdminAuthGuard', () => {
     jest.spyOn(mockUserRepository, 'createQueryBuilder').mockImplementationOnce(
       createQueryBuilderMock({
         getOne: jest.fn().mockResolvedValue({ ...userEntity, partnerAdmin: null }),
+      }) as never, // TODO resolve this typescript issue
+    );
+
+    const canActivate = await guard.canActivate(context);
+
+    expect(canActivate).toBe(false);
+  });
+
+  it('should return true when the partner admin is active', async () => {
+    jest.spyOn(mockAuthService, 'parseAuth').mockImplementation(() =>
+      Promise.resolve({
+        uid: 'uuid',
+      } as DecodedIdToken),
+    );
+    jest.spyOn(mockUserRepository, 'createQueryBuilder').mockImplementationOnce(
+      createQueryBuilderMock({
+        getOne: jest.fn().mockResolvedValue(userEntity),
+      }) as never, // TODO resolve this typescript issue
+    );
+
+    const canActivate = await guard.canActivate(context);
+
+    expect(canActivate).toBe(true);
+  });
+
+  it('should return error when the partner admin is inactive', async () => {
+    jest.spyOn(mockAuthService, 'parseAuth').mockImplementation(() =>
+      Promise.resolve({
+        uid: 'uuid',
+      } as DecodedIdToken),
+    );
+    jest.spyOn(mockUserRepository, 'createQueryBuilder').mockImplementationOnce(
+      createQueryBuilderMock({
+        getOne: jest.fn().mockResolvedValue({
+          ...userEntity,
+          partnerAdmin: { id: 'partnerAdminId', active: false, partner: {} },
+        }),
       }) as never, // TODO resolve this typescript issue
     );
 

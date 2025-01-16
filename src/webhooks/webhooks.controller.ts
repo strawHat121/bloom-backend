@@ -1,9 +1,22 @@
-import { Body, Controller, Logger, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Headers,
+  HttpException,
+  HttpStatus,
+  Logger,
+  Post,
+  Request,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBody, ApiTags } from '@nestjs/swagger';
+import { createHmac } from 'crypto';
+import { TherapySessionEntity } from 'src/entities/therapy-session.entity';
+import { storyblokWebhookSecret } from 'src/utils/constants';
 import { ControllerDecorator } from 'src/utils/controller.decorator';
 import { ZapierSimplybookBodyDto } from '../partner-access/dtos/zapier-body.dto';
 import { ZapierAuthGuard } from '../partner-access/zapier-auth.guard';
-import { StoryDto } from './dto/story.dto';
+import { StoryWebhookDto } from './dto/story.dto';
 import { WebhooksService } from './webhooks.service';
 
 @ApiTags('Webhooks')
@@ -18,32 +31,28 @@ export class WebhooksController {
   @ApiBody({ type: ZapierSimplybookBodyDto })
   async updatePartnerAccessTherapy(
     @Body() simplybookBodyDto: ZapierSimplybookBodyDto,
-  ): Promise<string> {
-    const updatedPartnerAccessTherapy = await this.webhooksService.updatePartnerAccessTherapy(
-      simplybookBodyDto,
-    );
-    this.logger.log(
-      `Updated partner access therapy: ${updatedPartnerAccessTherapy.clientEmail} - ${updatedPartnerAccessTherapy.bookingCode}`,
-    );
-
-    return 'Successful';
-  }
-
-  @UseGuards(ZapierAuthGuard)
-  @Post('therapy-feedback')
-  async sendTherapyFeedbackEmail(): Promise<string> {
-    return this.webhooksService.sendFirstTherapySessionFeedbackEmail();
-  }
-
-  @UseGuards(ZapierAuthGuard)
-  @Post('impact-measurement')
-  async sendImpactMeasurementEmail(): Promise<string> {
-    return this.webhooksService.sendImpactMeasurementEmail();
+  ): Promise<TherapySessionEntity> {
+    return this.webhooksService.updatePartnerAccessTherapy(simplybookBodyDto);
   }
 
   @Post('storyblok')
-  @ApiBody({ type: StoryDto })
-  async updateStory(@Body() storyDto: StoryDto) {
-    return this.webhooksService.updateStory(storyDto);
+  @ApiBody({ type: StoryWebhookDto })
+  async handleStoryUpdated(@Request() req, @Body() data: StoryWebhookDto, @Headers() headers) {
+    const signature: string | undefined = headers['webhook-signature'];
+    // Verify storyblok signature uses storyblok webhook secret - see https://www.storyblok.com/docs/guide/in-depth/webhooks#securing-a-webhook
+    if (!signature) {
+      const error = `Storyblok webhook error - no signature provided`;
+      this.logger.error(error);
+      throw new HttpException(error, HttpStatus.UNAUTHORIZED);
+    }
+    req.setEncoding('utf8');
+
+    const bodyHmac = createHmac('sha1', storyblokWebhookSecret).update(req.rawBody).digest('hex');
+    if (bodyHmac !== signature) {
+      const error = `Storyblok webhook error - signature mismatch`;
+      this.logger.error(error);
+      throw new HttpException(error, HttpStatus.UNAUTHORIZED);
+    }
+    return this.webhooksService.handleStoryUpdated(data);
   }
 }

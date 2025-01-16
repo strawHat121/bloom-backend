@@ -17,13 +17,16 @@ export class SessionUserEntity extends BaseBloomEntity {
 
   @Column()
   sessionId: string;
-  @ManyToOne(() => SessionEntity, (sessionEntity) => sessionEntity.sessionUser)
-  @JoinTable({ name: 'session', joinColumn: { name: 'sessionId' } })
+  @ManyToOne(() => SessionEntity, (sessionEntity) => sessionEntity.sessionUser, {
+    onDelete: 'CASCADE',
+  })
   session: SessionEntity;
 
   @Column()
   courseUserId: string;
-  @ManyToOne(() => CourseUserEntity, (courseUser) => courseUser.sessionUser)
+  @ManyToOne(() => CourseUserEntity, (courseUser) => courseUser.sessionUser, {
+    onDelete: 'CASCADE',
+  })
   @JoinTable({ name: 'course_user', joinColumn: { name: 'courseUserId' } })
   courseUser: CourseUserEntity;
 }
