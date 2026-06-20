@@ -1,16 +1,35 @@
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import 'reflect-metadata';
 import { AppModule } from './app.module';
 import { Logger } from './logger/logger';
 import { LoggingInterceptor } from './logger/logging.interceptor';
+import { getCorsOrigin } from './utils/cors';
 import { ExceptionsFilter } from './utils/exceptions.filter';
 
 async function bootstrap() {
   const PORT = process.env.PORT || 35001;
-  const app = await NestFactory.create(AppModule, { cors: true });
+  const app = await NestFactory.create(AppModule, {
+    cors: {
+      origin: getCorsOrigin(),
+      methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+      credentials: true,
+    },
+    rawBody: true,
+  });
 
+  app.use((req, res, next) => {
+    res.setHeader('Strict-Transport-Security', 'max-age=15552000; includeSubDomains');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    next();
+  });
   app.setGlobalPrefix('api');
+
+  // Starts listening for shutdown hooks
+  app.enableShutdownHooks();
 
   const options = new DocumentBuilder()
     .setTitle('Bloom backend API')
@@ -28,9 +47,9 @@ async function bootstrap() {
   const logger = app.get(Logger);
   app.useLogger(logger);
   app.useGlobalInterceptors(new LoggingInterceptor());
-  app.useGlobalPipes(new ValidationPipe({ transform: true }));
+  app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true }));
   app.useGlobalFilters(new ExceptionsFilter());
   await app.listen(PORT);
-  console.log(`Listening on localhost:${PORT}, CTRL+C to stop`);
+  logger.log(`Listening on localhost:${PORT}, CTRL+C to stop`);
 }
 bootstrap();

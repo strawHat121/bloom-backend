@@ -1,13 +1,15 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { FeatureEntity } from 'src/entities/feature.entity';
+import { Repository } from 'typeorm';
 import { CreateFeatureDto } from './dtos/create-feature.dto';
-import { FeatureRepository } from './feature.repository';
 
 @Injectable()
 export class FeatureService {
-  constructor(@InjectRepository(FeatureRepository) private featureRepository: FeatureRepository) {}
-  async createFeature(createFeatureDto: CreateFeatureDto): Promise<FeatureEntity | unknown> {
+  constructor(
+    @InjectRepository(FeatureEntity) private featureRepository: Repository<FeatureEntity>,
+  ) {}
+  async createFeature(createFeatureDto: CreateFeatureDto): Promise<FeatureEntity> {
     try {
       const featureObject = this.featureRepository.create(createFeatureDto);
       return await this.featureRepository.save(featureObject);
@@ -24,10 +26,10 @@ export class FeatureService {
       .where('Feature.featureId = :featureId', { featureId })
       .getOne();
   }
-  public async getFeatureByName(name: string): Promise<FeatureEntity> {
+  async getFeatureByName(name: string): Promise<FeatureEntity> {
     return await this.featureRepository
       .createQueryBuilder('Feature')
-      .where('Feature.name = :name', { name })
+      .where('LOWER(Feature.name) LIKE LOWER(:name)', { name })
       .getOne();
   }
 

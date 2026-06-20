@@ -1,11 +1,12 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
 import { formatPartnerObject } from 'src/utils/serialize';
 import { PartnerEntity } from '../entities/partner.entity';
 import { SuperAdminAuthGuard } from '../partner-admin/super-admin-auth.guard';
 import { ControllerDecorator } from '../utils/controller.decorator';
 import { CreatePartnerDto } from './dtos/create-partner.dto';
-import { DeletePartnerDto } from './dtos/delete-partner.dto';
+import { UpdatePartnerDto } from './dtos/update-partner.dto';
+import { PartnerParamDto, PartnerIdParamDto } from './dtos/partner-param.dto';
 import { IPartner } from './partner.interface';
 import { PartnerService } from './partner.service';
 
@@ -22,7 +23,7 @@ export class PartnerController {
   @ApiBody({ type: CreatePartnerDto })
   async createPartner(
     @Body() createPartnerDto: CreatePartnerDto,
-  ): Promise<PartnerEntity | unknown> {
+  ): Promise<PartnerEntity> {
     return this.partnerService.createPartner(createPartnerDto);
   }
 
@@ -36,20 +37,19 @@ export class PartnerController {
 
   @Get(':name')
   @ApiOperation({ description: 'Returns profile data for a partner' })
-  @UseGuards(SuperAdminAuthGuard) // Temporary super admin auth guard
+  @UseGuards(SuperAdminAuthGuard)
   @ApiParam({ name: 'name', description: 'Gets partner by name' })
-  async getPartner(@Param() { name }): Promise<IPartner> {
-    // annoyingly the frontend doesn't have the id when features are needed
-    const partnerResponse = await this.partnerService.getPartnerWithPartnerFeaturesByName(name);
+  async getPartner(@Param() params: PartnerParamDto): Promise<IPartner> {
+    const partnerResponse = await this.partnerService.getPartnerWithPartnerFeaturesByName(params.name);
     return formatPartnerObject(partnerResponse);
   }
 
   @ApiBearerAuth('access-token')
   @UseGuards(SuperAdminAuthGuard)
-  @Post('delete')
-  @ApiOperation({ description: 'Deletes a partner profile and makes partnerAccess inactive' })
-  @ApiBody({ type: DeletePartnerDto })
-  async deletePartner(@Body() deletePartnerDto: DeletePartnerDto) {
-    return this.partnerService.deletePartner(deletePartnerDto);
+  @Patch(':id')
+  @ApiOperation({ description: 'Update a partner profile to make partner active or inactive' })
+  @ApiBody({ type: UpdatePartnerDto })
+  async updatePartnerActiveStatus(@Param() params: PartnerIdParamDto, @Body() updatePartnerDto: UpdatePartnerDto) {
+    return this.partnerService.updatePartnerActiveStatus(params.id, updatePartnerDto);
   }
 }

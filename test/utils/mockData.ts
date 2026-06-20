@@ -1,22 +1,36 @@
+import { ISbResult } from '@storyblok/js';
+import { add } from 'date-fns';
 import { UserRecord } from 'firebase-admin/lib/auth/user-record';
+import { CoursePartnerEntity } from 'src/entities/course-partner.entity';
+import { CourseUserEntity } from 'src/entities/course-user.entity';
 import { CourseEntity } from 'src/entities/course.entity';
-import { EmailCampaignEntity } from 'src/entities/email-campaign.entity';
+import { EventLogEntity } from 'src/entities/event-log.entity';
 import { FeatureEntity } from 'src/entities/feature.entity';
 import { PartnerAccessEntity } from 'src/entities/partner-access.entity';
 import { PartnerAdminEntity } from 'src/entities/partner-admin.entity';
 import { PartnerFeatureEntity } from 'src/entities/partner-feature.entity';
 import { PartnerEntity } from 'src/entities/partner.entity';
+import { ResourceEntity } from 'src/entities/resource.entity';
+import { SessionUserEntity } from 'src/entities/session-user.entity';
 import { SessionEntity } from 'src/entities/session.entity';
+import { SubscriptionUserEntity } from 'src/entities/subscription-user.entity';
+import { SubscriptionEntity } from 'src/entities/subscription.entity';
 import { TherapySessionEntity } from 'src/entities/therapy-session.entity';
 import { UserEntity } from 'src/entities/user.entity';
+import { EVENT_NAME } from 'src/event-logger/event-logger.interface';
 import { IFirebaseUser } from 'src/firebase/firebase-user.interface';
-import { ZapierSimplybookBodyDto } from 'src/partner-access/dtos/zapier-body.dto';
+import { SimplybookBookingDetails } from 'src/api/simplybook/simplybook-api';
+import { SimplybookBodyDto } from 'src/partner-access/dtos/simplybook-body.dto';
 import {
-  CAMPAIGN_TYPE,
+  EMAIL_REMINDERS_FREQUENCY,
+  RESOURCE_CATEGORIES,
   SIMPLYBOOK_ACTION_ENUM,
   STORYBLOK_STORY_STATUS_ENUM,
 } from 'src/utils/constants';
-import { StoryblokResult } from 'storyblok-js-client';
+import {
+  SimplybookNotificationType,
+  SimplybookWebhookDto,
+} from 'src/webhooks/dto/simplybook-webhook.dto';
 
 export const mockSessionStoryblokResult = {
   data: {
@@ -44,8 +58,8 @@ export const mockSessionStoryblokResult = {
   },
   perPage: 1,
   total: 1,
-  headers: 1,
-} as StoryblokResult;
+  headers: undefined,
+} as ISbResult;
 
 export const mockCourseStoryblokResult = {
   data: {
@@ -71,14 +85,35 @@ export const mockCourseStoryblokResult = {
   },
   perPage: 1,
   total: 1,
-  headers: 1,
-} as StoryblokResult;
+  headers: undefined,
+} as ISbResult;
+
+export const mockResourceStoryblokResult = {
+  data: {
+    story: {
+      name: 'Resource name 2',
+      created_at: '2022-05-05T11:29:10.888Z',
+      published_at: '2022-05-19T16:32:44.502Z',
+      id: 98765,
+      uuid: 'resourceUuid2',
+      content: {
+        _uid: '23456',
+        name: 'Resource name 2',
+        component: 'resource_short_video',
+      },
+      slug: 'resource-name',
+      full_slug: 'resources/shorts/resource-name',
+    },
+  },
+  perPage: 1,
+  total: 1,
+  headers: undefined,
+} as ISbResult;
 
 export const mockCourse: CourseEntity = {
   coursePartner: [],
   courseUser: [],
   id: 'courseId1',
-  storyblokId: 123456,
   storyblokUuid: 'courseUuid1',
   slug: '/slug/slug',
   status: STORYBLOK_STORY_STATUS_ENUM.PUBLISHED,
@@ -91,7 +126,6 @@ export const mockCourse: CourseEntity = {
 export const mockSession: SessionEntity = {
   sessionUser: [],
   id: 'sessionId1',
-  storyblokId: 123456,
   storyblokUuid: 'sessionStoryblokUuid1',
   slug: 'courses/creating-boundaries/what-are-boundaries',
   status: STORYBLOK_STORY_STATUS_ENUM.PUBLISHED,
@@ -100,6 +134,33 @@ export const mockSession: SessionEntity = {
   updatedAt: new Date(100),
   courseId: 'courseId1',
   course: { ...mockCourse },
+  sessionFeedback: [],
+};
+
+export const mockResource: ResourceEntity = {
+  resourceUser: [],
+  id: 'resourceId1',
+  storyblokUuid: 'resourceUuid1',
+  slug: 'resources/shorts/resource-name',
+  status: STORYBLOK_STORY_STATUS_ENUM.PUBLISHED,
+  name: 'Resource name',
+  category: RESOURCE_CATEGORIES.SHORT_VIDEO,
+  createdAt: new Date(100),
+  updatedAt: new Date(100),
+  resourceFeedback: [],
+};
+
+export const mockResource2: ResourceEntity = {
+  id: 'resourceId2',
+  storyblokUuid: 'resourceUuid2',
+  slug: 'resources/shorts/resource-name',
+  status: STORYBLOK_STORY_STATUS_ENUM.PUBLISHED,
+  name: 'Resource name 2',
+  category: RESOURCE_CATEGORIES.SHORT_VIDEO,
+  createdAt: new Date(100),
+  updatedAt: new Date(100),
+  resourceUser: [],
+  resourceFeedback: [],
 };
 
 export const mockIFirebaseUser: IFirebaseUser = {
@@ -122,22 +183,27 @@ export const mockIFirebaseUser: IFirebaseUser = {
 };
 
 export const mockUserEntity: UserEntity = {
-  id: '1',
+  id: 'userId1',
   isSuperAdmin: false,
   isActive: true,
+  lastActiveAt: new Date(),
   createdAt: new Date(),
+  updatedAt: new Date(),
+  deletedAt: null,
   partnerAccess: [],
   partnerAdmin: null,
   courseUser: [],
-  updatedAt: new Date(),
-  crispTokenId: '123',
   firebaseUid: '123',
   contactPermission: true,
+  serviceEmailsPermission: true,
+  emailRemindersFrequency: EMAIL_REMINDERS_FREQUENCY.TWO_MONTHS,
   email: 'user@email.com',
   name: 'name',
   signUpLanguage: 'en',
   subscriptionUser: [],
   therapySession: [],
+  resourceUser: [],
+  eventLog: [],
 };
 
 export const mockTherapySessionEntity = {
@@ -146,39 +212,98 @@ export const mockTherapySessionEntity = {
   partnerAccessId: 'pa1',
   partnerAccess: { id: 'pa1' } as PartnerAccessEntity,
   updatedAt: new Date(),
-  serviceName: 'bloomtherapy',
+  serviceName: 'bloom therapy',
   serviceProviderEmail: 'therapist@test.com',
   serviceProviderName: 'Therapist name',
   bookingCode: '123',
+  bookingId: 123456,
   clientTimezone: 'Europe/London',
   clientEmail: 'client@test.com',
-  name: 'client name',
   startDateTime: new Date('2022-09-12T07:30:00+0100'),
   endDateTime: new Date('2022-09-12T08:30:00+0100'),
   cancelledAt: null,
   rescheduledFrom: null,
   completedAt: null,
   id: 'ts1',
-  userId: 'userId',
+  userId: 'userId1',
   user: { signUpLanguage: 'en' } as UserEntity,
 } as TherapySessionEntity;
 
-export const mockSimplybookBodyBase: ZapierSimplybookBodyDto = {
+export const mockTherapySessionDto = {
+  id: mockTherapySessionEntity.id,
+  action: mockTherapySessionEntity.action,
+  clientTimezone: mockTherapySessionEntity.clientTimezone,
+  serviceName: mockTherapySessionEntity.serviceName,
+  serviceProviderName: mockTherapySessionEntity.serviceProviderName,
+  serviceProviderEmail: mockTherapySessionEntity.serviceProviderEmail,
+  startDateTime: mockTherapySessionEntity.startDateTime,
+  endDateTime: mockTherapySessionEntity.endDateTime,
+  cancelledAt: mockTherapySessionEntity.cancelledAt,
+  rescheduledFrom: mockTherapySessionEntity.rescheduledFrom,
+  completedAt: mockTherapySessionEntity.completedAt,
+};
+
+export const mockAltTherapySessionEntity = {
+  createdAt: new Date(),
+  partnerAccessId: 'pa2',
+  partnerAccess: { id: 'pa2' } as PartnerAccessEntity,
+  updatedAt: new Date(),
+  serviceName: 'bloom therapy',
+  serviceProviderEmail: 'therapist@test.com',
+  serviceProviderName: 'Therapist name',
+  bookingCode: '321',
+  clientTimezone: 'Europe/London',
+  clientEmail: 'client@test.com',
+  startDateTime: new Date('2022-09-15T07:30:00+0100'),
+  endDateTime: new Date('2022-09-15T08:30:00+0100'),
+  cancelledAt: null,
+  rescheduledFrom: null,
+  completedAt: null,
+  id: 'ts2',
+  userId: 'userId1',
+  user: { signUpLanguage: 'en' } as UserEntity,
+} as TherapySessionEntity;
+
+export const mockSimplybookBodyBase: SimplybookBodyDto = {
   action: SIMPLYBOOK_ACTION_ENUM.UPDATED_BOOKING,
   start_date_time: '2022-09-12T07:30:00+0000',
   end_date_time: '2022-09-12T08:30:00+0000',
   client_email: 'testuser@test.com',
-  client_id: '115e272a-5fc3-4991-8ea9-12dacad25bae',
+  user_id: 'userId2',
   client_timezone: 'Europe/London',
   booking_code: 'abc',
   service_name: 'bloom therapy',
   service_provider_email: 'therapist@test.com',
-  service_provider_name: 'therapist@test.com',
+  service_provider_name: 'Therapist name',
+};
+
+export const mockSimplybookWebhookDto: SimplybookWebhookDto = {
+  booking_id: 123,
+  company: 'chayn',
+  notification_type: SimplybookNotificationType.CREATE,
+};
+
+export const mockSimplybookBookingDetails: SimplybookBookingDetails = {
+  id: 123,
+  code: 'abc',
+  start_datetime: '2022-09-12T07:30:00+0000',
+  end_datetime: '2022-09-12T08:30:00+0000',
+  service: { name: 'bloom therapy' },
+  provider: { name: 'Therapist name', email: 'therapist@test.com' },
+  client: { email: 'testuser@test.com' },
+  additional_fields: [{ id: 1, field_name: 'user_id', value: 'userId2' }],
 };
 
 export const mockPartnerEntity = {
   name: 'Bumble',
   id: 'partnerId',
+  partnerFeature: [],
+  isActive: true,
+} as PartnerEntity;
+
+export const mockAltPartnerEntity = {
+  name: 'Badoo',
+  id: 'partnerAltId',
   partnerFeature: [],
 } as PartnerEntity;
 
@@ -196,7 +321,8 @@ export const mockPartnerAccessEntityBase = {
   createdAt: new Date(),
   therapySession: [],
   updatedAt: null,
-};
+} as PartnerAccessEntity;
+
 export const mockPartnerAccessEntity = {
   id: 'pa1',
   therapySessionsRemaining: 5,
@@ -209,18 +335,73 @@ export const mockPartnerAccessEntity = {
   partnerAdminId: null,
   createdAt: new Date(),
   activatedAt: new Date(),
-  therapySession: [],
+  therapySession: [mockTherapySessionEntity],
   updatedAt: new Date(),
   active: true,
+  userId: null,
 } as PartnerAccessEntity;
 
-export const mockEmailCampaignEntity: EmailCampaignEntity = {
-  email: 'test@test.com',
-  emailSentDateTime: new Date(),
-  id: 'id',
+export const mockAltPartnerAccessEntity = {
+  id: 'pa2',
+  therapySessionsRemaining: 4,
+  therapySessionsRedeemed: 2,
+  featureTherapy: true,
+  featureLiveChat: false,
+  accessCode: '654321',
+  partner: mockAltPartnerEntity,
+  partnerAdmin: null,
+  partnerAdminId: null,
+  createdAt: new Date(),
+  activatedAt: new Date(),
+  therapySession: [
+    mockAltTherapySessionEntity,
+    {
+      ...mockAltTherapySessionEntity,
+      id: 'ts3',
+      bookingCode: '432',
+      startDateTime: add(new Date(), { days: 3 }),
+      endDateTime: add(new Date(), { days: 3, hours: 1 }),
+    },
+  ],
+  updatedAt: new Date(),
+  active: true,
+  userId: null,
+} as PartnerAccessEntity;
+
+export const mockSessionUserEntity: SessionUserEntity = {
+  id: 'su1',
+  sessionId: 'sessionId1',
+  session: mockSession,
+  completed: true,
+  completedAt: new Date('2022-09-12T07:30:00+0100'),
+  courseUserId: 'cu1',
+  courseUser: null,
   createdAt: new Date(),
   updatedAt: new Date(),
-  campaignType: CAMPAIGN_TYPE.THERAPY_FEEDBACK,
+};
+
+export const mockCourseUserEntity: CourseUserEntity = {
+  id: 'cu1',
+  completed: false,
+  completedAt: null,
+  userId: 'userId1',
+  user: null,
+  courseId: 'courseId1',
+  course: mockCourse,
+  sessionUser: [mockSessionUserEntity],
+  createdAt: new Date(),
+  updatedAt: new Date(),
+};
+
+export const mockCoursePartnerEntity: CoursePartnerEntity = {
+  id: 'coursePartnerId',
+  partnerId: mockPartnerEntity.id,
+  partner: mockPartnerEntity,
+  courseId: mockCourse.id,
+  course: { ...mockCourse },
+  active: true,
+  createdAt: new Date(),
+  updatedAt: new Date(),
 };
 
 export const mockPartnerAdminEntity: PartnerAdminEntity = {
@@ -232,6 +413,7 @@ export const mockPartnerAdminEntity: PartnerAdminEntity = {
   partnerAccess: [mockPartnerAccessEntity],
   createdAt: new Date(),
   updatedAt: new Date(),
+  active: true,
 };
 
 export const mockFeatureEntity = {
@@ -265,3 +447,38 @@ export const partnerAccessArray = Array.from(
   ],
   (x, index) => ({ ...mockPartnerAccessEntity, accessCode: x.accessCode + index }),
 );
+
+export const mockEventLog: EventLogEntity = {
+  event: EVENT_NAME.CHAT_MESSAGE_SENT,
+  date: new Date(2000, 1, 1),
+  userId: '123',
+} as EventLogEntity;
+
+export const mockSubscriptionEntity = {
+  name: 'whatsapp',
+} as SubscriptionEntity;
+
+export const mockSubscriptionUserEntity = {
+  id: 'su1',
+  subscriptionInfo: '07898987655',
+  userId: mockUserEntity.id,
+  subscription: mockSubscriptionEntity,
+} as SubscriptionUserEntity;
+
+export const mockStoryWebhookDto = {
+  text: 'string',
+  action: STORYBLOK_STORY_STATUS_ENUM.PUBLISHED,
+  story_id: 1,
+  story_uuid: '1234',
+  space_id: 123,
+  full_slug: 'course slug',
+};
+
+export const mockSessionEntity = {
+  id: 'sid',
+  name: 'session name',
+  slug: 'session_name',
+  status: STORYBLOK_STORY_STATUS_ENUM.PUBLISHED,
+  storyblokUuid: '1234',
+  courseId: '12345',
+} as SessionEntity;

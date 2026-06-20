@@ -1,24 +1,83 @@
 import { ConsoleLogger } from '@nestjs/common';
 import Rollbar from 'rollbar';
+import { FIREBASE_ERRORS } from 'src/utils/errors';
+import { redactPii, safeErrorMessage } from 'src/utils/pii-redaction';
 import { isProduction, rollbarEnv, rollbarToken } from '../utils/constants';
+import { ErrorLog } from './utils';
+import { ClsService, ClsServiceManager } from 'nestjs-cls';
+
+interface LogMessage {
+  event: string;
+  userId: string;
+  fields?: string[];
+}
+
+interface RequestContext {
+  requestId: string;
+  sessionId: string;
+}
 
 export class Logger extends ConsoleLogger {
   private rollbar?: Rollbar;
+  private cls: ClsService;
 
-  constructor(context?: string, isTimestampEnabled?: any) {
+  constructor(context?: string, isTimestampEnabled?) {
     super(context, isTimestampEnabled);
-
+    this.cls = ClsServiceManager.getClsService();
     this.initialiseRollbar();
   }
 
-  error(message: string, trace?: string): void {
+  getRequestContext(): RequestContext {
+    try {
+      return {
+        requestId: this.cls.getId(),
+        sessionId: this.cls.get('sessionId'),
+      };
+    } catch {
+      console.log('Error getting request context');
+      return {
+        requestId: 'not set',
+        sessionId: 'not set',
+      };
+    }
+  }
+
+  log(message: string | LogMessage): void {
+    const formattedMessage = typeof message === 'string' ? message : JSON.stringify(message);
+    const requestContext = this.getRequestContext();
+    const decoratedMessage = `[Request ID: ${requestContext.requestId}, Session ID: ${requestContext.sessionId}] ${redactPii(formattedMessage)}`;
+    super.log(decoratedMessage);
+  }
+
+  warn(message: string | ErrorLog, trace?: string): void {
+    try {
+      const formattedMessage = typeof message === 'string' ? message : JSON.stringify(message);
+      const requestContext = this.getRequestContext();
+      const decoratedMessage = `[Request ID: ${requestContext.requestId}, Session ID: ${requestContext.sessionId}] ${redactPii(formattedMessage)}`;
+      const taggedMessage = `[warn] ${decoratedMessage}`;
+      super.warn(taggedMessage, trace);
+    } catch {
+      console.error('Error logging warning');
+    }
+  }
+
+  error(message: string | ErrorLog, trace?: string): void {
+    const formattedMessage = typeof message === 'string' ? message : JSON.stringify(message);
+    const sanitizedMessage = redactPii(formattedMessage);
+
     if (this.rollbar) {
-      this.rollbar.error(message);
+      this.rollbar.error(sanitizedMessage);
     }
 
-    const taggedMessage = `[error] ${message}`;
+    const requestContext = this.getRequestContext();
+    const decoratedMessage = `[Request ID: ${requestContext.requestId}, Session ID: ${requestContext.sessionId}] ${sanitizedMessage}`;
+
+    const taggedMessage = `[error] ${decoratedMessage}`;
     super.error(taggedMessage, trace);
   }
+
+  /** Safely extract a loggable string from an error without dumping the full object. */
+  static safeErrorMessage = safeErrorMessage;
 
   private initialiseRollbar() {
     // Values MUST be set in production mode.
@@ -36,6 +95,20 @@ export class Logger extends ConsoleLogger {
         accessToken: rollbarToken,
         captureUncaught: true,
         captureUnhandledRejections: true,
+        captureIp: 'anonymize',
+        // Rollbar replaces (does not merge with) its default scrubFields when this option is set,
+        // so include the standard list and add 'token' to also mask the Simplybook webhook URL param.
+        scrubFields: [
+          'passwd',
+          'password',
+          'secret',
+          'confirm_password',
+          'password_confirmation',
+          'auth',
+          'authentication',
+          'token',
+        ],
+        ignoredMessages: [...Object.values(FIREBASE_ERRORS)],
       });
     }
   }

@@ -1,23 +1,10 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsBoolean, IsNotEmpty, IsString } from 'class-validator';
+import { IsDefined } from 'class-validator';
+import { SecureInput } from '../../utils/sanitization.decorators';
 
 export class SessionUserDto {
-  @IsNotEmpty()
-  @IsString()
+  @SecureInput('text', { required: true, maxLength: 100 })
+  @IsDefined()
   @ApiProperty({ type: String })
-  sessionId: string;
-
-  @IsNotEmpty()
-  @IsString()
-  @ApiProperty({ type: String })
-  courseUserId: string;
-
-  @IsNotEmpty()
-  @IsBoolean()
-  @ApiProperty({ type: Boolean })
-  completed?: boolean;
-
-  @IsBoolean()
-  @ApiProperty({ type: Date })
-  completedAt?: Date;
+  storyblokUuid: string;
 }

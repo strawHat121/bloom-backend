@@ -11,7 +11,14 @@ export class LoggingInterceptor implements NestInterceptor {
   intercept(context: ExecutionContext, next: CallHandler): Observable<void> {
     const req = context.switchToHttp().getRequest<Request>();
 
-    const commonMessage = `${req.method} "${req.originalUrl}" for ${req.ip}`;
+    //@ts-expect-error: userEntity is modified in authGuard
+    const userId = req?.userEntity?.id;
+
+    if (req.originalUrl === '/api/ping') {
+      return next.handle();
+    }
+
+    const commonMessage = `${req.method} "${req.originalUrl}" (requestUserId: ${userId})`;
 
     this.logger.log(`Started ${commonMessage}`);
 
@@ -23,11 +30,11 @@ export class LoggingInterceptor implements NestInterceptor {
       }),
       catchError((err) => {
         this.logger.error(
-          `Failed ${commonMessage} - status: ${err.status}, message: ${err.message} - in ${
+          `Failed ${commonMessage} - status: ${err?.status}, message: ${err?.message || 'unknown error'} - in ${
             Date.now() - now
           }ms`,
         );
-        return throwError(err);
+        return throwError(() => err);
       }),
     );
   }

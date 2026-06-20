@@ -1,10 +1,10 @@
 import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
-import { GetUserDto } from 'src/user/dtos/get-user.dto';
+import { UserEntity } from '../entities/user.entity';
 import { ControllerDecorator } from 'src/utils/controller.decorator';
 import { FirebaseAuthGuard } from '../firebase/firebase-auth.guard';
-import { UpdateSessionUserDto } from './dtos/update-session-user.dto';
+import { SessionUserDto } from './dtos/session-user.dto';
 import { SessionUserService } from './session-user.service';
 
 @ApiTags('Session User')
@@ -20,9 +20,9 @@ export class SessionUserController {
       'Stores relationship between a `User` and `Session` records, once a user has started a session.',
   })
   @UseGuards(FirebaseAuthGuard)
-  async createSessionUser(@Req() req: Request, @Body() createSessionUserDto: UpdateSessionUserDto) {
+  async createSessionUser(@Req() req: Request, @Body() createSessionUserDto: SessionUserDto) {
     return await this.sessionUserService.createSessionUser(
-      req['user'] as GetUserDto,
+      req['userEntity'] as UserEntity,
       createSessionUserDto,
     );
   }
@@ -33,9 +33,9 @@ export class SessionUserController {
   })
   @ApiBearerAuth('access-token')
   @UseGuards(FirebaseAuthGuard)
-  async complete(@Req() req: Request, @Body() updateSessionUserDto: UpdateSessionUserDto) {
+  async complete(@Req() req: Request, @Body() updateSessionUserDto: SessionUserDto) {
     return await this.sessionUserService.setSessionUserCompleted(
-      req['user'] as GetUserDto,
+      req['userEntity'] as UserEntity,
       updateSessionUserDto,
       true,
     );
@@ -48,9 +48,9 @@ export class SessionUserController {
   })
   @ApiBearerAuth('access-token')
   @UseGuards(FirebaseAuthGuard)
-  async incomplete(@Req() req: Request, @Body() updateSessionUserDto: UpdateSessionUserDto) {
+  async incomplete(@Req() req: Request, @Body() updateSessionUserDto: SessionUserDto) {
     return await this.sessionUserService.setSessionUserCompleted(
-      req['user'] as GetUserDto,
+      req['userEntity'] as UserEntity,
       updateSessionUserDto,
       false,
     );

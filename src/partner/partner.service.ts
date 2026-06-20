@@ -1,28 +1,25 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { PartnerAccessEntity } from 'src/entities/partner-access.entity';
+import { PartnerAdminEntity } from 'src/entities/partner-admin.entity';
 import { UserEntity } from 'src/entities/user.entity';
-import { PartnerAccessRepository } from 'src/partner-access/partner-access.repository';
-import { PartnerAdminRepository } from 'src/partner-admin/partner-admin.repository';
-import { UserRepository } from 'src/user/user.repository';
-import { In } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { PartnerEntity } from '../entities/partner.entity';
 import { CreatePartnerDto } from './dtos/create-partner.dto';
-import { DeletePartnerDto } from './dtos/delete-partner.dto';
-import { PartnerRepository } from './partner.repository';
+import { UpdatePartnerDto } from './dtos/update-partner.dto';
 
 @Injectable()
 export class PartnerService {
   constructor(
-    @InjectRepository(PartnerRepository) private partnerRepository: PartnerRepository,
-    @InjectRepository(PartnerAccessRepository)
-    private partnerAccessRepository: PartnerAccessRepository,
-    @InjectRepository(PartnerAdminRepository)
-    private partnerAdminRepository: PartnerAdminRepository,
-    @InjectRepository(UserRepository) private userRepository: UserRepository,
+    @InjectRepository(PartnerEntity) private partnerRepository: Repository<PartnerEntity>,
+    @InjectRepository(PartnerAccessEntity)
+    private partnerAccessRepository: Repository<PartnerAccessEntity>,
+    @InjectRepository(PartnerAdminEntity)
+    private partnerAdminRepository: Repository<PartnerAdminEntity>,
+    @InjectRepository(UserEntity) private userRepository: Repository<UserEntity>,
   ) {}
 
-  async createPartner(createPartnerDto: CreatePartnerDto): Promise<PartnerEntity | unknown> {
+  async createPartner(createPartnerDto: CreatePartnerDto): Promise<PartnerEntity> {
     try {
       const partnerObject = this.partnerRepository.create(createPartnerDto);
       return await this.partnerRepository.save(partnerObject);
@@ -45,12 +42,14 @@ export class PartnerService {
       .where('LOWER(partner.name) LIKE LOWER(:name)', { name: `%${name.toLowerCase()}%` })
       .getOne();
   }
+
   async getPartnerById(partnerId: string): Promise<PartnerEntity> {
     return await this.partnerRepository
       .createQueryBuilder('partner')
       .where('partner.partnerId = :partnerId', { partnerId })
       .getOne();
   }
+
   async getPartnerWithPartnerFeaturesByName(name: string): Promise<PartnerEntity> {
     return await this.partnerRepository
       .createQueryBuilder('partner')
@@ -59,48 +58,45 @@ export class PartnerService {
       .where('LOWER(partner.name) LIKE LOWER(:name)', { name })
       .getOne();
   }
-  async getPartnerWithPartnerFeaturesById(partnerId: string): Promise<PartnerEntity> {
-    return await this.partnerRepository
-      .createQueryBuilder('partner')
-      .leftJoinAndSelect('partner.partnerFeature', 'partnerFeature')
-      .leftJoinAndSelect('partnerFeature.feature', 'feature')
-      .where('partner.partnerId = :partnerId', { partnerId })
-      .getOne();
-  }
 
-  async deletePartner({ partnerId }: DeletePartnerDto): Promise<string> {
-    try {
-      const partner = await this.partnerRepository.findOne({ where: { id: partnerId } });
-      if (!partner) {
-        throw new HttpException('Partner does not exist', HttpStatus.BAD_REQUEST);
-      }
+  async updatePartnerActiveStatus(partnerId: string, { active }: UpdatePartnerDto) {
+    const partner = await this.partnerRepository.findOneBy({ id: partnerId });
+    if (!partner) {
+      throw new HttpException('Partner does not exist', HttpStatus.BAD_REQUEST);
+    }
 
+    // Update partner active status
+    const updatedPartnerResponse = await this.partnerRepository.save({
+      ...partner,
+      isActive: active,
+    });
+
+    if (updatedPartnerResponse) {
+      const partnerAdmins = await this.partnerAdminRepository.findBy({ partnerId });
+      const partnerAdminIds = partnerAdmins.map((pa) => pa.id);
+
+      // Update partner admin active status
+      await this.partnerAdminRepository
+        .createQueryBuilder('partner_admin')
+        .update(PartnerAdminEntity)
+        .set({ active: active })
+        .where({ id: In(partnerAdminIds) })
+        .execute();
+
+      const partnerAccess = await this.partnerAccessRepository.findBy({ partnerId });
+      const partnerAccessIds = partnerAccess.map((pa) => pa.id);
+
+      // Update partner access active status
       await this.partnerAccessRepository
         .createQueryBuilder('partner_access')
         .update(PartnerAccessEntity)
-        .set({ active: false })
-        .where('partnerId = :partnerId', { partnerId })
+        .set({ active: active })
+        .where({ id: In(partnerAccessIds) })
         .execute();
 
-      // //Partner Admins
-      const partnerAdmins = await this.partnerAdminRepository.find({ where: { partnerId } });
-      const partnerAdminUserIds = partnerAdmins.map((pa) => {
-        return pa.userId;
-      });
-
-      await this.userRepository
-        .createQueryBuilder('user')
-        .update(UserEntity)
-        .set({ isActive: false })
-        .where({ id: In(partnerAdminUserIds) })
-        .execute();
-
-      partner.isActive = false;
-      await this.partnerRepository.save(partner);
-
-      return 'Successful';
-    } catch (error) {
-      throw error;
+      return updatedPartnerResponse;
+    } else {
+      throw new HttpException('Failed to update partner', HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 }

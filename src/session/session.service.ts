@@ -1,21 +1,27 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { SessionEntity } from '../entities/session.entity';
-import { SessionRepository } from './session.repository';
 
 @Injectable()
 export class SessionService {
-  constructor(@InjectRepository(SessionRepository) private sessionRepository: SessionRepository) {}
+  constructor(
+    @InjectRepository(SessionEntity) private sessionRepository: Repository<SessionEntity>,
+  ) {}
 
-  async getSession(id: string): Promise<SessionEntity> {
-    return await this.sessionRepository.findOne({ id });
-  }
-
-  async getSessionByStoryblokId(storyblokId: number): Promise<SessionEntity> {
+  async getSessionAndCourse(id: string): Promise<SessionEntity> {
     return await this.sessionRepository
       .createQueryBuilder('session')
       .leftJoinAndSelect('session.course', 'course')
-      .where('session.storyblokId = :storyblokId', { storyblokId })
+      .where('session.id = :id', { id })
+      .getOne();
+  }
+
+  async getSessionByStoryblokUuid(storyblokUuid: string): Promise<SessionEntity> {
+    return await this.sessionRepository
+      .createQueryBuilder('session')
+      .leftJoinAndSelect('session.course', 'course')
+      .where('session.storyblokUuid = :storyblokUuid', { storyblokUuid })
       .getOne();
   }
 }

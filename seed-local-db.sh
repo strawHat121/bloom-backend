@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 
-#Create Time Stamp
-DATE=`date "+%Y%m%d"`
+# First manually get a dump of the staging database by either
+# 1. Using the Render dashboard to create a backup and download it - see https://render.com/docs/postgresql-backups
+# 2. Using the command line to create a backup
+#    - Ensure your IP is whitelisted to access the Render database
+#    - Use the following command to create a backup and download it
+#    - pg_dump -Fd -j 2 -U user -h host -p port -d password -f postgres_dump
+#    - This will create a directory called postgres_dump with the backup files
 
-TIMESTAMP=`date "+%Y%m%d-%H%M%S"`
+# Load backup into local database via docker
+# Ensure you have Docker running and the bloom-local-db container is up
+# Ensure you have the postgres_dump directory in the same location as this script
+docker exec -i bloom-local-db pg_restore -U postgres -d bloom < postgres_dump.dump
 
-set -e
-
-#Backup Remote database
-curl `heroku pg:backups public-url --app bloom-backend-staging` > bloom_$TIMESTAMP.dump
-
-#Load backup into local database
-docker exec -i bloom-local-db pg_restore -U postgres -d bloom < bloom_$TIMESTAMP.dump
+rm postgres_dump.dump

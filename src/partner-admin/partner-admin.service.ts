@@ -1,28 +1,29 @@
 import { HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { UserEntity } from 'src/entities/user.entity';
+import { ILike, Repository } from 'typeorm';
 import { PartnerAdminEntity } from '../entities/partner-admin.entity';
 import { FIREBASE } from '../firebase/firebase-factory';
 import { FirebaseServices } from '../firebase/firebase.types';
 import { PartnerService } from '../partner/partner.service';
-import { UserRepository } from '../user/user.repository';
 import { generateRandomString } from '../utils/utils';
 import { CreatePartnerAdminUserDto } from './dtos/create-partner-admin-user.dto';
 import { CreatePartnerAdminDto } from './dtos/create-partner-admin.dto';
-import { PartnerAdminRepository } from './partner-admin.repository';
+import { UpdatePartnerAdminDto } from './dtos/update-partner-admin.dto';
 
 @Injectable()
 export class PartnerAdminService {
   constructor(
-    @InjectRepository(PartnerAdminRepository)
-    private partnerAdminRepository: PartnerAdminRepository,
+    @InjectRepository(UserEntity) private userRepository: Repository<UserEntity>,
+    @InjectRepository(PartnerAdminEntity)
+    private partnerAdminRepository: Repository<PartnerAdminEntity>,
     private readonly partnerService: PartnerService,
     @Inject(FIREBASE) private firebase: FirebaseServices,
-    @InjectRepository(UserRepository) private userRepository: UserRepository,
   ) {}
 
   async createPartnerAdmin(
     createPartnerAdminDto: CreatePartnerAdminDto,
-  ): Promise<PartnerAdminEntity | unknown> {
+  ): Promise<PartnerAdminEntity> {
     try {
       const createPartnerAdminObject = this.partnerAdminRepository.create(createPartnerAdminDto);
       return await this.partnerAdminRepository.save(createPartnerAdminObject);
@@ -38,7 +39,7 @@ export class PartnerAdminService {
     email,
     partnerId,
     name,
-  }: CreatePartnerAdminUserDto): Promise<PartnerAdminEntity | unknown> {
+  }: CreatePartnerAdminUserDto): Promise<PartnerAdminEntity> {
     try {
       const partnerResponse = await this.partnerService.getPartnerById(partnerId);
 
@@ -46,20 +47,44 @@ export class PartnerAdminService {
         throw new HttpException('Partner does not exist', HttpStatus.BAD_REQUEST);
       }
 
-      const firebaseUser = await this.firebase.auth.createUserWithEmailAndPassword(
-        email,
-        generateRandomString(10),
-      );
-
-      const user = await this.userRepository.save({
-        name,
-        email,
-        firebaseUid: firebaseUser.user.uid,
-        contactPermission: true,
+      // Check if the user already exists
+      const userResponse = await this.userRepository.findOne({
+        where: {
+          email: ILike(email),
+        },
+        relations: {
+          partnerAdmin: true,
+        },
       });
 
+      let userId: string;
+
+      if (userResponse?.id) {
+        if (userResponse.partnerAdmin) {
+          throw new HttpException('User is already a partner admin', HttpStatus.BAD_REQUEST);
+        }
+        // User exists, use existing user
+        userId = userResponse.id;
+      } else {
+        // No user found, create a new user
+        const firebaseUser = await this.firebase.auth.createUserWithEmailAndPassword(
+          email,
+          generateRandomString(10),
+        );
+
+        const user = await this.userRepository.save({
+          name,
+          email,
+          firebaseUid: firebaseUser.user.uid,
+          contactPermission: true,
+          serviceEmailsPermission: true,
+        });
+
+        userId = user.id;
+      }
+
       return await this.partnerAdminRepository.save({
-        userId: user.id,
+        userId: userId,
         partnerId: partnerResponse.id,
       });
     } catch (error) {
@@ -67,6 +92,32 @@ export class PartnerAdminService {
         throw new HttpException('This email address is already in use', HttpStatus.BAD_REQUEST);
       }
       throw error;
+    }
+  }
+
+  async updatePartnerAdminById(
+    partnerAdminId: string,
+    updatePartnerAdminDto: UpdatePartnerAdminDto,
+  ): Promise<PartnerAdminEntity> {
+    const partnerAdminResponse = await this.partnerAdminRepository.findOneBy({
+      id: partnerAdminId,
+    });
+
+    if (!partnerAdminResponse) {
+      throw new HttpException('Partner admin does not exist', HttpStatus.BAD_REQUEST);
+    }
+    const updatedPartnerAdminResponse = await this.partnerAdminRepository
+      .createQueryBuilder('partner_admin')
+      .update(PartnerAdminEntity)
+      .set({ active: updatePartnerAdminDto.active })
+      .where('partnerAdminId = :partnerAdminId', { partnerAdminId })
+      .returning('*')
+      .execute();
+
+    if (updatedPartnerAdminResponse.raw.length > 0) {
+      return updatedPartnerAdminResponse.raw[0];
+    } else {
+      throw new HttpException('Failed to update partner admin', HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 }

@@ -1,16 +1,16 @@
 import { createMock, DeepMocked } from '@golevelup/ts-jest';
 import { Test, TestingModule } from '@nestjs/testing';
+import { getRepositoryToken } from '@nestjs/typeorm';
 import { PartnerAdminEntity } from 'src/entities/partner-admin.entity';
+import { UserEntity } from 'src/entities/user.entity';
 import { FIREBASE } from 'src/firebase/firebase-factory';
 import { PartnerService } from 'src/partner/partner.service';
-import { UserRepository } from 'src/user/user.repository';
 import { mockPartnerAdminEntity, mockPartnerEntity, mockUserEntity } from 'test/utils/mockData';
 import { mockPartnerServiceMethods } from 'test/utils/mockedServices';
 import { Repository } from 'typeorm';
 import { createQueryBuilderMock } from '../../test/utils/mockUtils';
 import { CreatePartnerAdminUserDto } from './dtos/create-partner-admin-user.dto';
 import { CreatePartnerAdminDto } from './dtos/create-partner-admin.dto';
-import { PartnerAdminRepository } from './partner-admin.repository';
 import { PartnerAdminService } from './partner-admin.service';
 
 const dto: CreatePartnerAdminUserDto = {
@@ -21,17 +21,17 @@ const dto: CreatePartnerAdminUserDto = {
 
 describe('PartnerAdminService', () => {
   let service: PartnerAdminService;
-  let repo: PartnerAdminRepository;
-  let mockUserRepository: DeepMocked<UserRepository>;
+  let repo: Repository<PartnerAdminEntity>;
+  let mockUserRepository: DeepMocked<Repository<UserEntity>>;
 
   beforeEach(async () => {
-    mockUserRepository = createMock<UserRepository>();
+    mockUserRepository = createMock<Repository<UserEntity>>();
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         PartnerAdminService,
         {
-          provide: PartnerAdminRepository,
+          provide: getRepositoryToken(PartnerAdminEntity),
           useFactory: jest.fn(() => ({
             createQueryBuilder: createQueryBuilderMock(),
             create: (dto: CreatePartnerAdminDto): PartnerAdminEntity | Error => {
@@ -48,7 +48,7 @@ describe('PartnerAdminService', () => {
           useValue: mockPartnerServiceMethods,
         },
         {
-          provide: UserRepository,
+          provide: getRepositoryToken(UserEntity),
           useValue: mockUserRepository,
         },
         {
@@ -67,7 +67,7 @@ describe('PartnerAdminService', () => {
     }).compile();
 
     service = module.get<PartnerAdminService>(PartnerAdminService);
-    repo = module.get<Repository<PartnerAdminEntity>>(PartnerAdminRepository);
+    repo = module.get<Repository<PartnerAdminEntity>>(getRepositoryToken(PartnerAdminEntity));
   });
 
   it('should be defined', () => {
@@ -76,18 +76,21 @@ describe('PartnerAdminService', () => {
   describe('createPartnerAdmin', () => {
     it('when supplied with correct data should create partner admin', async () => {
       const repoSpySave = jest.spyOn(repo, 'save');
+      jest.spyOn(mockUserRepository, 'findOne').mockResolvedValue(undefined);
       jest.spyOn(mockUserRepository, 'save').mockResolvedValue(mockUserEntity);
 
       const response = await service.createPartnerAdminUser(dto);
       expect(response).toHaveProperty('partnerId', dto.partnerId);
       expect(response).toHaveProperty('userId', mockUserEntity.id);
-      expect(repoSpySave).toBeCalled();
+      expect(repoSpySave).toHaveBeenCalled();
     });
   });
   it('when supplied with an email that already exists, it should throw', async () => {
     jest
       .spyOn(mockUserRepository, 'save')
-      .mockRejectedValueOnce(new Error('auth/email-already-in-use'));
-    await expect(service.createPartnerAdminUser(dto)).rejects.toThrow('auth/email-already-in-use');
+      .mockRejectedValueOnce(new Error('User is already a partner admin'));
+    await expect(service.createPartnerAdminUser(dto)).rejects.toThrow(
+      'User is already a partner admin',
+    );
   });
 });

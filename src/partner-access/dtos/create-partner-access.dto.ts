@@ -1,27 +1,28 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsBoolean, IsInt, IsDefined } from 'class-validator';
+import { IsBoolean, IsDefined, IsInt, Max, Min } from 'class-validator';
 
 export class CreatePartnerAccessDto {
-  @IsNotEmpty()
   @IsBoolean()
   @IsDefined()
   @ApiProperty({ type: Boolean })
   featureLiveChat: boolean;
 
-  @IsNotEmpty()
   @IsBoolean()
   @IsDefined()
   @ApiProperty({ type: Boolean })
   featureTherapy: boolean;
 
-  @IsNotEmpty()
   @IsInt()
+  @Min(0)
+  // We should programatically set this per partner set up in the future
+  @Max(6)
   @IsDefined()
   @ApiProperty({ type: Number })
   therapySessionsRemaining: number;
 
-  @IsNotEmpty()
   @IsInt()
+  @Min(0)
+  @Max(0)
   @IsDefined()
   @ApiProperty({ type: Number })
   therapySessionsRedeemed: number;

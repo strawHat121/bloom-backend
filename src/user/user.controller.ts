@@ -3,31 +3,42 @@ import {
   Controller,
   Delete,
   Get,
+  HttpException,
+  HttpStatus,
   Param,
+  Patch,
   Post,
-  Put,
   Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { Request } from 'express';
 import { UserEntity } from 'src/entities/user.entity';
 import { SuperAdminAuthGuard } from 'src/partner-admin/super-admin-auth.guard';
+import { ServiceUserProfilesService } from 'src/service-user-profiles/service-user-profiles.service';
 import { FirebaseAuthGuard } from '../firebase/firebase-auth.guard';
 import { ControllerDecorator } from '../utils/controller.decorator';
+import { AdminUpdateUserDto } from './dtos/admin-update-user.dto';
 import { CreateUserDto } from './dtos/create-user.dto';
 import { GetUserDto } from './dtos/get-user.dto';
 import { UpdateUserDto } from './dtos/update-user.dto';
+import { UserParamDto } from './dtos/user-param.dto';
+import { UserQueryDto } from './dtos/user-query.dto';
 import { UserService } from './user.service';
 
 @ApiTags('Users')
 @ControllerDecorator()
 @Controller('/v1/user')
 export class UserController {
-  constructor(private readonly userService: UserService) {}
+  constructor(
+    private readonly userService: UserService,
+    private readonly serviceUserProfilesService: ServiceUserProfilesService,
+  ) {}
 
   @Post()
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @ApiOperation({
     description: 'Stores basic profile data for a user',
   })
@@ -41,26 +52,21 @@ export class UserController {
     description:
       'Returns user profile data with their nested partner access, partner admin, course user and session user data.',
   })
-  @Post('/me')
+  @Get('/me')
   @UseGuards(FirebaseAuthGuard)
   async getUserByFirebaseId(@Req() req: Request): Promise<GetUserDto> {
-    return req['user'];
-  }
-
-  // TODO - work out if this is used anywhere and delete if necessary
-  @ApiBearerAuth()
-  @Post('/delete')
-  @UseGuards(FirebaseAuthGuard)
-  async deleteUserRecord(@Req() req: Request): Promise<string> {
-    return await this.userService.deleteUser(req['user'] as GetUserDto);
+    const user = req['userEntity'];
+    this.userService.updateUser({ lastActiveAt: new Date() }, user.id);
+    return (await this.userService.getUserProfile(user.id)).userDto;
   }
 
   @ApiBearerAuth()
   @Delete()
   @UseGuards(FirebaseAuthGuard)
-  async deleteUser(@Req() req: Request): Promise<string> {
-    return await this.userService.deleteUser(req['user'] as GetUserDto);
+  async deleteUser(@Req() req: Request): Promise<UserEntity> {
+    return await this.userService.deleteUser(req['userEntity']);
   }
+
   // This route must go before the Delete user route below as we want nestjs to check against this one first
   @ApiBearerAuth('access-token')
   @Delete('/cypress')
@@ -69,28 +75,87 @@ export class UserController {
     return await this.userService.deleteCypressTestUsers();
   }
 
+  @ApiBearerAuth('access-token')
+  @Delete('/cypress-clean')
+  @UseGuards(SuperAdminAuthGuard)
+  async cleanCypressUsers(): Promise<UserEntity[]> {
+    return await this.userService.deleteCypressTestUsers(true);
+  }
+
   @ApiBearerAuth()
   @Delete(':id')
   @ApiParam({ name: 'id', description: 'User id to delete' })
   @UseGuards(SuperAdminAuthGuard)
-  async adminDeleteUser(@Param() { id }): Promise<UserEntity> {
-    return await this.userService.deleteUserById(id);
+  async adminDeleteUser(@Param() params: UserParamDto): Promise<UserEntity> {
+    return await this.userService.deleteUserById(params.id);
   }
 
   @ApiBearerAuth()
-  @Put()
+  @Patch()
   @UseGuards(FirebaseAuthGuard)
-  async updateUser(@Body() updateUserDto: UpdateUserDto, @Req() req: Request) {
-    return await this.userService.updateUser(updateUserDto, req['user'] as GetUserDto);
+  async updateUser(@Body() updateUserDto: UpdateUserDto, @Req() req: Request): Promise<UserEntity> {
+    return await this.userService.updateUser(updateUserDto, req['userEntity'].id);
+  }
+
+  @ApiBearerAuth()
+  @Patch('/admin/:id')
+  @UseGuards(SuperAdminAuthGuard)
+  async adminUpdateUser(@Param() params: UserParamDto, @Body() adminUpdateUserDto: AdminUpdateUserDto) {
+    return await this.userService.adminUpdateUser(adminUpdateUserDto, params.id);
   }
 
   @ApiBearerAuth()
   @Get()
   @UseGuards(SuperAdminAuthGuard)
-  async getUsers(@Query() query) {
-    const { include, fields, limit, ...userQuery } = query.searchCriteria
-      ? JSON.parse(query.searchCriteria)
-      : { include: [], fields: [], limit: undefined };
-    return await this.userService.getUsers(userQuery, include, fields, limit);
+  async getUsers(@Query() query: UserQueryDto) {
+    let searchQuery;
+    try {
+      searchQuery = query.searchCriteria ? JSON.parse(query.searchCriteria) : undefined;
+    } catch {
+      throw new HttpException(
+        `Failed to parse searchCriteria: ${query.searchCriteria}`,
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const { include, limit, ...userQuery } = searchQuery || { include: [], limit: undefined };
+    const users = await this.userService.getUsers(userQuery, include || [], limit);
+    return users;
+  }
+
+  @ApiBearerAuth()
+  @Get('/bulk-upload-mailchimp-profiles')
+  @ApiOperation({ description: 'Bulk creates Mailchimp profiles for users created within date range' })
+  @UseGuards(SuperAdminAuthGuard)
+  async bulkUploadMailchimpProfiles(
+    @Query('startDate') startDate: string,
+    @Query('endDate') endDate: string,
+  ) {
+    if (!startDate || !endDate) {
+      throw new HttpException(
+        'startDate and endDate query params are required (YYYY-MM-DD)',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    await this.serviceUserProfilesService.bulkUploadMailchimpProfiles(startDate, endDate);
+    return 'ok';
+  }
+
+  @ApiBearerAuth()
+  @Get('/bulk-update-mailchimp-profiles')
+  @ApiOperation({ description: 'Bulk updates Mailchimp profiles for users updated within date range' })
+  @UseGuards(SuperAdminAuthGuard)
+  async bulkUpdateMailchimpProfiles(
+    @Query('startDate') startDate: string,
+    @Query('endDate') endDate: string,
+  ) {
+    if (!startDate || !endDate) {
+      throw new HttpException(
+        'startDate and endDate query params are required (YYYY-MM-DD)',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    await this.serviceUserProfilesService.bulkUpdateMailchimpProfiles(startDate, endDate);
+    return 'ok';
   }
 }

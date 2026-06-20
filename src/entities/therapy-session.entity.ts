@@ -19,6 +19,9 @@ export class TherapySessionEntity extends BaseBloomEntity {
   bookingCode: string;
 
   @Column({ nullable: true })
+  bookingId: number;
+
+  @Column({ nullable: true })
   clientTimezone: string;
 
   @Column()
@@ -47,7 +50,9 @@ export class TherapySessionEntity extends BaseBloomEntity {
 
   @Column()
   partnerAccessId: string;
-  @ManyToOne(() => PartnerAccessEntity, (partnerAccess) => partnerAccess.therapySession)
+  @ManyToOne(() => PartnerAccessEntity, (partnerAccess) => partnerAccess.therapySession, {
+    onDelete: 'CASCADE',
+  })
   @JoinTable({ name: 'partner_access', joinColumn: { name: 'partnerAccessId' } })
   partnerAccess: PartnerAccessEntity;
 
